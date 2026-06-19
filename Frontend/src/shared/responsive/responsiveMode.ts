@@ -53,7 +53,7 @@ export function deriveResponsiveMode(matches: ResponsiveQueryMatches): Responsiv
   return {
     viewport,
     hasPersistentSessionPanel: matches.wideUp,
-    hasPersistentWorkflowPanel: matches.desktopUp,
+    hasPersistentWorkflowPanel: matches.wideUp,
     prefersCompactControls: viewport === "mobile" || isCoarsePointer,
     supportsHover: matches.supportsHover,
     isCoarsePointer,

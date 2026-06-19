@@ -44,7 +44,7 @@ export function UserFooter({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-14 w-full items-center gap-2 border-t border-ink-200/70 px-3 text-left transition hover:bg-ink-900/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-terra-300"
+        className="flex h-14 w-full items-center gap-2 border-t border-ink-200/55 px-3 text-left transition hover:bg-ink-900/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-terra-300"
       >
         <UserAvatar profile={profile} />
         <div className="min-w-0 flex-1">
@@ -78,7 +78,7 @@ function UserAvatar({ profile, size = "normal" }: { profile: UserProfile; size?:
   return (
     <div
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden bg-ink-900 font-semibold text-paper-50 ring-1 ring-ink-900/10",
+        "grid shrink-0 place-items-center overflow-hidden bg-paper-200 font-semibold text-ink-700 ring-1 ring-ink-200/80",
         className,
       )}
     >
@@ -241,7 +241,7 @@ function AvatarPicker({
             选择图片后可移动和缩放裁切。
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-ink-900 px-3 text-[12.5px] font-medium text-paper-50 transition hover:bg-ink-800">
+            <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-ink-200/80 bg-paper-50 px-3 text-[12.5px] font-medium text-ink-700 transition hover:border-ink-300 hover:bg-white hover:text-ink-900">
               <Camera className="h-3.5 w-3.5" />
               选择图片
               <input
@@ -383,7 +383,7 @@ function AvatarCropper({
             step="0.01"
             value={crop.scale}
             onChange={(event) => updateScale(Number(event.target.value))}
-            className="h-1.5 w-full cursor-pointer accent-ink-900"
+            className="h-1.5 w-full cursor-pointer accent-terra-500"
           />
         </label>
 
@@ -399,7 +399,7 @@ function AvatarCropper({
             type="button"
             disabled={!image}
             onClick={handleApply}
-            className="h-8 rounded-md bg-ink-900 px-3 text-[12.5px] font-medium text-paper-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-45"
+            className="h-8 rounded-md bg-ink-850 px-3 text-[12.5px] font-medium text-paper-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-45"
           >
             使用头像
           </button>

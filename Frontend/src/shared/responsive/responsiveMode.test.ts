@@ -11,7 +11,7 @@ function matches(overrides: Partial<ResponsiveQueryMatches>): ResponsiveQueryMat
 }
 
 describe("deriveResponsiveMode", () => {
-  it("reserves persistent workflow for desktop and dual persistent panels for wide screens", () => {
+  it("reserves persistent panels for wide screens", () => {
     expect(responsiveMediaQueries.desktopUp).toBe("(min-width: 1024px)");
     expect(responsiveMediaQueries.wideUp).toBe("(min-width: 1536px)");
   });
@@ -34,7 +34,7 @@ describe("deriveResponsiveMode", () => {
     expect(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true }))).toMatchObject({
       viewport: "desktop",
       hasPersistentSessionPanel: false,
-      hasPersistentWorkflowPanel: true,
+      hasPersistentWorkflowPanel: false,
     });
 
     expect(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true, wideUp: true }))).toMatchObject({
@@ -68,7 +68,7 @@ describe("deriveResponsiveMode", () => {
     expect(deriveResponsiveMode(matches({ desktopUp: true, prefersReducedMotion: true }))).toMatchObject({
       viewport: "desktop",
       prefersReducedMotion: true,
-      hasPersistentWorkflowPanel: true,
+      hasPersistentWorkflowPanel: false,
     });
   });
 });

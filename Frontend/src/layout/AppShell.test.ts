@@ -23,10 +23,10 @@ describe("readAppShellSurfacePlan", () => {
     });
   });
 
-  it("switches only to persistent panels when the capability exists", () => {
+  it("keeps workflow transient until the wide dual-panel capability exists", () => {
     expect(readAppShellSurfacePlan(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true })))).toEqual({
       session: "drawer",
-      workflow: "persistent",
+      workflow: "drawer",
     });
 
     expect(
@@ -61,9 +61,9 @@ describe("readAppShellRenderPlan", () => {
     expect(readAppShellRenderPlan(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true })))).toMatchObject({
       showSessionRail: true,
       showSessionPersistentPanel: false,
-      showWorkflowPersistentPanel: true,
+      showWorkflowPersistentPanel: false,
       showSessionDrawer: true,
-      showWorkflowDrawer: false,
+      showWorkflowDrawer: true,
     });
 
     expect(
@@ -90,7 +90,7 @@ describe("readAppShellRenderPlan", () => {
 
     expect(readAppShellRenderPlan(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true })))).toMatchObject({
       showChatSessionPanelAction: false,
-      showChatWorkflowPanelAction: false,
+      showChatWorkflowPanelAction: true,
     });
 
     expect(
@@ -103,7 +103,7 @@ describe("readAppShellRenderPlan", () => {
 });
 
 describe("readWorkflowPanelWidth", () => {
-  it("uses a compact persistent workflow width on desktop and a full width on wide screens", () => {
+  it("keeps workflow width helpers stable for persistent layouts", () => {
     expect(readWorkflowPanelWidth(deriveResponsiveMode(matches({ tabletUp: true, desktopUp: true })))).toBe(360);
     expect(readWorkflowPanelWidth(deriveResponsiveMode(matches({
       tabletUp: true,

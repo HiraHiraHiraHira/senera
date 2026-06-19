@@ -31,7 +31,7 @@ export function SessionRail({
   onOpenSessionPanel,
 }: SessionRailProps): JSX.Element {
   return (
-    <aside className="flex h-full w-[56px] shrink-0 flex-col items-center border-r border-ink-200/70 bg-paper-100/60 py-3">
+    <aside className="flex h-full w-[56px] shrink-0 flex-col items-center border-r border-ink-200/55 bg-paper-100/85 py-3">
       <IconButton
         label="expand"
         tooltip="展开侧栏"
@@ -63,7 +63,7 @@ export function SessionHeader({
   const { isCoarsePointer } = useResponsiveMode();
 
   return (
-    <div className="flex h-14 items-center gap-1.5 px-2.5">
+    <div className="flex h-14 items-center gap-1.5 border-b border-ink-200/35 px-2.5">
       <IconButton
         label="collapse"
         tooltip="收起侧栏"
@@ -80,7 +80,7 @@ export function SessionHeader({
           <button
             type="button"
             className={cn(
-              "group flex h-8 flex-1 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-ink-800 transition hover:bg-ink-900/[0.05]",
+              "group flex h-8 flex-1 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-ink-800 transition hover:bg-ink-900/[0.04]",
               isCoarsePointer && "min-h-11",
             )}
           >

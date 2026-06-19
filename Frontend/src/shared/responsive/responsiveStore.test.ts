@@ -74,7 +74,7 @@ describe("createResponsiveModeStore", () => {
     lists.get(responsiveMediaQueries.desktopUp)?.setMatches(true);
     lists.get(responsiveMediaQueries.desktopUp)?.emit();
 
-    expect(store.getSnapshot()).toMatchObject({ viewport: "desktop", hasPersistentWorkflowPanel: true });
+    expect(store.getSnapshot()).toMatchObject({ viewport: "desktop", hasPersistentWorkflowPanel: false });
     expect(subscriberA).toHaveBeenCalledTimes(1);
     expect(subscriberB).toHaveBeenCalledTimes(1);
 

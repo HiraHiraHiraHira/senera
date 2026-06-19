@@ -18,7 +18,7 @@ export function AssistantMessageBody({
       <ThinkingSummaryBar run={run} onViewWorkflow={onViewWorkflow} />
       <LazyMarkdownRenderer
         className="mt-1 min-w-0"
-        contentClassName="text-[14.5px] leading-[1.85] text-ink-800"
+        contentClassName="text-[15px] leading-[1.82] text-ink-850"
       >
         {message.content}
       </LazyMarkdownRenderer>

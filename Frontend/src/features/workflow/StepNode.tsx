@@ -49,7 +49,7 @@ function StepNodeBase({ data, selected }: NodeProps<WorkflowStepNode>): JSX.Elem
     <div
       className={cn(
         "group relative w-[240px] cursor-pointer rounded-xl border bg-paper-50 px-3 py-2.5 transition-all",
-        "shadow-[0_1px_2px_rgba(28,26,23,0.04)] hover:shadow-[0_4px_12px_rgba(28,26,23,0.10)]",
+        "shadow-[0_1px_2px_rgba(43,40,32,0.035)] hover:shadow-[0_4px_12px_rgba(43,40,32,0.09)]",
         accent.border,
         selected ? "ring-2 ring-terra-400 ring-offset-2 ring-offset-paper-100" : "",
       )}

@@ -21,7 +21,7 @@ export function HistoryRecoveryState({
   if (failed) {
     return (
       <div className="flex flex-1 flex-col justify-end px-4 pb-8 sm:px-6">
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-[760px]">
           <div className="flex items-start gap-3 rounded-md border border-brick-200/60 bg-brick-50/40 px-3 py-2.5">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-brick-600" />
             <div className="min-w-0 flex-1">
@@ -51,7 +51,7 @@ export function HistoryRecoveryState({
   const rows = Math.min(4, Math.max(2, Math.ceil(messageCount / 3)));
   return (
     <div className="flex flex-1 flex-col justify-end px-4 pb-8 sm:px-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4">
         {Array.from({ length: rows }).map((_, index) => (
           <HistorySkeletonRow
             // eslint-disable-next-line react/no-array-index-key
@@ -96,13 +96,13 @@ function HistorySkeletonRow({
           className={cn(
             "shimmer rounded-2xl",
             isRight
-              ? "ml-auto h-10 rounded-br-md bg-ink-800/20"
-              : "h-16 rounded-bl-md bg-ink-700/25",
+              ? "ml-auto h-10 rounded-br-md bg-ink-900/[0.08]"
+              : "h-16 rounded-bl-md bg-ink-900/[0.06]",
           )}
         />
         <div
           className={cn(
-            "mt-1 h-2 rounded bg-ink-800/15",
+            "mt-1 h-2 rounded bg-ink-900/[0.06]",
             isRight ? "ml-auto w-16" : "w-20",
           )}
         />

@@ -207,7 +207,7 @@ export function SessionList({
       onOpenSessionPanel={handleOpenFromRail}
     />
   ) : (
-    <aside className={cn("flex h-full shrink-0 flex-col border-r border-ink-200/70 bg-paper-100/70", panelWidthClass)}>
+    <aside className={cn("flex h-full shrink-0 flex-col border-r border-ink-200/55 bg-paper-100/85", panelWidthClass)}>
       <SessionHeader
         menuSections={menuSections}
         onNewSession={onNewSession}

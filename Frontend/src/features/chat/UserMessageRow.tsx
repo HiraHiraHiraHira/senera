@@ -48,9 +48,9 @@ export function UserMessageRow({
           whileTap={tapScale ? { scale: tapScale } : undefined}
           transition={motionTimings.fast}
           className={cn(
-            "mt-1 whitespace-pre-wrap rounded-2xl rounded-tr-md bg-ink-900 px-4 py-2.5 text-left text-[14.5px] leading-relaxed text-paper-50 shadow-bubble-user transition",
+            "mt-1 whitespace-pre-wrap rounded-[18px] rounded-tr-md bg-paper-200 px-4 py-2.5 text-left text-[14.5px] leading-relaxed text-ink-900 shadow-bubble-user transition",
             message.requestId
-              ? "cursor-text hover:bg-ink-800 focus:outline-none focus:ring-2 focus:ring-terra-200/60"
+              ? "cursor-text hover:bg-paper-300/80 focus:outline-none focus:ring-2 focus:ring-terra-200/70"
               : "cursor-default",
           )}
           aria-label="编辑这条消息"
@@ -83,7 +83,7 @@ function MessageAttachments({
       {attachments.map((attachment) => (
         <div
           key={attachment.uploadUri}
-          className="flex max-w-full items-center gap-1.5 rounded-lg border border-ink-200 bg-paper-50 px-2 py-1 text-[11px] text-ink-650 shadow-sm"
+          className="flex max-w-full items-center gap-1.5 rounded-lg border border-ink-200/70 bg-paper-50/80 px-2 py-1 text-[11px] text-ink-650 shadow-bubble-user"
           title={attachment.uploadUri}
         >
           <FilePreviewIcon name={attachment.name} mime={attachment.mime} />

@@ -69,17 +69,17 @@ export function SessionRow({
           transition={motionTimings.fast}
           className={cn(
             "group relative isolate mt-0.5 grid w-full cursor-pointer grid-cols-[24px_minmax(0,1fr)_28px] items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
-            "data-[state=open]:bg-ink-900/[0.055]",
+            "data-[state=open]:bg-ink-900/[0.04]",
             active
               ? "text-ink-900"
-              : "text-ink-700 hover:bg-ink-900/[0.03]",
+              : "text-ink-700 hover:bg-ink-900/[0.025]",
           )}
         >
           {active ? (
             <motion.span
               key={sessionId}
               layoutId="active-session-indicator"
-              className="pointer-events-none absolute inset-0 z-0 rounded-lg bg-ink-900/[0.055]"
+              className="pointer-events-none absolute inset-0 z-0 rounded-lg bg-paper-50/85 ring-1 ring-ink-200/60"
               transition={reduceMotion || disableMotion ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 42 }}
             />
           ) : null}
@@ -115,7 +115,7 @@ export function SessionRow({
                 onClick={(e) => e.stopPropagation()}
                 touchSafe
                 className={cn(
-                  "justify-self-end hover:bg-ink-900/[0.06]",
+                  "justify-self-end hover:bg-ink-900/[0.045]",
                   menuOpen || active || showInlineActions ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                 )}
               >
@@ -144,7 +144,7 @@ export function EmptyState({ onNewSession }: { onNewSession: () => void }): JSX.
       <button
         type="button"
         onClick={onNewSession}
-        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-paper-50 px-2.5 py-1 text-[12px] text-ink-800 transition hover:border-ink-300 hover:bg-paper-200/60"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-ink-200/70 bg-paper-50/80 px-2.5 py-1 text-[12px] text-ink-800 transition hover:border-ink-300 hover:bg-white"
       >
         <SquarePen className="h-3 w-3" />
         开始新对话

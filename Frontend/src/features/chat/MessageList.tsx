@@ -198,7 +198,7 @@ export function MessageList({
           if (isStreamingListItem(item)) {
             return (
               <div
-                className="chat-message-item mx-auto box-border w-full max-w-3xl px-4 pb-3 pt-1 sm:px-6"
+                className="chat-message-item mx-auto box-border w-full max-w-[760px] px-4 pb-3 pt-1 sm:px-6"
                 data-message-key={itemKey}
                 ref={heightObserverRef}
               >
@@ -218,7 +218,7 @@ export function MessageList({
           const shouldAnimateMount = shouldHighlightCompletedStream || isRecentMessage;
           return (
             <div
-              className="chat-message-item mx-auto box-border w-full max-w-3xl px-4 pb-3 pt-1 sm:px-6"
+              className="chat-message-item mx-auto box-border w-full max-w-[760px] px-4 pb-3 pt-1 sm:px-6"
               data-message-key={itemKey}
               ref={heightObserverRef}
             >

@@ -131,7 +131,7 @@ function buildPreviewDocument(code: string): string {
 function createPreviewScrollbarStyle(): string {
   return `
 :root {
-  scrollbar-color: rgba(28, 26, 23, 0.16) transparent;
+  scrollbar-color: rgba(43, 40, 32, 0.15) transparent;
   scrollbar-width: thin;
 }
 html,
@@ -143,13 +143,13 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(28, 26, 23, 0.16);
+  background: rgba(43, 40, 32, 0.15);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(28, 26, 23, 0.26);
+  background: rgba(43, 40, 32, 0.25);
   border: 2px solid transparent;
   background-clip: padding-box;
 }

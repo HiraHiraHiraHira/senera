@@ -7,9 +7,9 @@ interface LogoProps {
 
 const brandMarkViewBox = "70 86 360 338";
 const brandColors = {
-  wave: "#7e67c2",
-  accent: "#f6cf52",
-  node: "#a3abb2",
+  wave: "#c2694a",
+  accent: "#d2ba8d",
+  node: "#aaa592",
 } as const;
 
 export function LogoMark({ className, size = 22 }: LogoProps): JSX.Element {
@@ -53,7 +53,7 @@ export function LogoWordmark({ className }: { className?: string }): JSX.Element
       style={{ fontFamily: "Fraunces, serif", fontStyle: "italic", fontWeight: 500 }}
     >
       senera
-      <span className="ml-0.5 text-[#7e67c2]" style={{ fontStyle: "normal" }}>
+      <span className="ml-0.5 text-terra-400" style={{ fontStyle: "normal" }}>
         .
       </span>
     </span>

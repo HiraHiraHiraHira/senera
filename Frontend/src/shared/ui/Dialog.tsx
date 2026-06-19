@@ -395,7 +395,7 @@ export interface DialogActionButtonProps extends ButtonHTMLAttributes<HTMLButton
 
 const dialogActionVariantClasses: Record<DialogActionVariant, string> = {
   secondary: "text-ink-600 hover:bg-ink-900/[0.05] hover:text-ink-900",
-  primary: "bg-ink-900 font-medium text-paper-50 hover:bg-ink-800",
+  primary: "bg-ink-850 font-medium text-paper-50 hover:bg-ink-800",
   danger: "bg-brick-500 font-medium text-paper-50 hover:bg-brick-600 focus:ring-brick-200/60",
 };
 

@@ -91,7 +91,7 @@ function ThinkingPanel({
 
   if (isRail) {
     return (
-      <aside className="flex h-full w-[44px] shrink-0 flex-col items-center border-l border-ink-200/60 bg-paper-100/40 py-3">
+      <aside className="flex h-full w-[44px] shrink-0 flex-col items-center border-l border-ink-200/45 bg-paper-100/75 py-3">
         <IconButton
           label="expand"
           tooltip="展开思考过程"
@@ -108,7 +108,7 @@ function ThinkingPanel({
   return (
     <>
       <aside className={cn(
-        "flex h-full shrink-0 flex-col border-l border-ink-200/60 bg-paper-100/40",
+        "flex h-full shrink-0 flex-col border-l border-ink-200/45 bg-paper-100/75",
         presentation === "panel" ? "w-full border-l-0" : "w-full",
       )}>
         <TopBar
@@ -168,7 +168,7 @@ function TopBar({
 
   return (
     <>
-      <div className="flex h-14 items-center gap-2 border-b border-ink-200/60 bg-paper-100/70 px-3">
+      <div className="flex h-14 items-center gap-2 border-b border-ink-200/45 bg-paper-100/85 px-3">
         {onCollapse ? (
           <IconButton
             label="collapse"
@@ -197,7 +197,7 @@ function TopBar({
             ) : null}
           </MetaLabel>
           {pinnedToHistory ? (
-          <div className="flex shrink-0 items-center gap-1 rounded-md border border-ink-200/60 bg-paper-50/80 p-0.5 shadow-[0_1px_0_rgba(28,26,23,0.04)]">
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-ink-200/55 bg-paper-50/75 p-0.5 shadow-[0_1px_0_rgba(43,40,32,0.035)]">
             <button
               type="button"
               onClick={onFollowLatest}
@@ -221,7 +221,7 @@ function TopBar({
 
       {/* Run 选择器 */}
       {runs.length > 0 ? (
-        <div className="border-b border-ink-200/40 bg-paper-50/70 px-3 py-2">
+        <div className="border-b border-ink-200/35 bg-paper-50/60 px-3 py-2">
           {summary && run ? <RunSummaryStrip run={run} summary={summary} /> : null}
           <RunSelector
             runs={runs}
@@ -266,7 +266,7 @@ function TimelineFocusDialog({
         motionPreset="focus"
         frameClassName="bottom-3 left-3 right-3 top-3 sm:bottom-4 sm:left-4 sm:right-4 sm:top-4"
         className="h-auto max-h-none w-auto max-w-none rounded-lg"
-        bodyClassName="flex min-h-0 flex-1 flex-col bg-paper-100/40"
+        bodyClassName="flex min-h-0 flex-1 flex-col bg-paper-100/75"
       >
         <motion.div
           variants={readFocusPanelVariants(effectiveLevel)}
@@ -277,7 +277,7 @@ function TimelineFocusDialog({
           className="min-h-0 flex flex-1 flex-col"
         >
           {runs.length > 0 ? (
-            <div className="shrink-0 border-b border-ink-200/40 bg-paper-50/70 px-3 py-2 sm:px-4">
+            <div className="shrink-0 border-b border-ink-200/35 bg-paper-50/70 px-3 py-2 sm:px-4">
               {summary && run ? <RunSummaryStrip run={run} summary={summary} /> : null}
               <RunSelector
                 runs={runs}
@@ -330,7 +330,7 @@ function CanvasArea({
 function CanvasLoading(): JSX.Element {
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-hidden">
-      <div className="inline-flex items-center gap-2 rounded-md border border-ink-200/60 bg-paper-50/80 px-3 py-2 text-[12px] text-ink-500 shadow-bubble-ai">
+      <div className="inline-flex items-center gap-2 rounded-md border border-ink-200/55 bg-paper-50/80 px-3 py-2 text-[12px] text-ink-500 shadow-bubble-ai">
         <Loader2 className="h-3.5 w-3.5 animate-spin text-umber-500" />
         加载执行图
       </div>
@@ -350,7 +350,7 @@ function EmptyCanvas(): JSX.Element {
       transition={disableMotion ? { duration: 0 } : reduceMotion ? motionTimings.base : motionSprings.soft}
       className="flex max-w-[320px] flex-col items-center px-6 text-center"
     >
-      <div className="grid h-11 w-11 place-items-center rounded-xl border border-ink-200/70 bg-paper-50 shadow-[0_1px_2px_rgba(28,26,23,0.04)]">
+      <div className="grid h-11 w-11 place-items-center rounded-xl border border-ink-200/60 bg-paper-50 shadow-[0_1px_2px_rgba(43,40,32,0.035)]">
         <ListTree className="h-5 w-5 text-ink-500" />
       </div>
       <p className="mt-3 text-[13px] font-medium text-ink-850">
@@ -374,7 +374,7 @@ function EmptyCanvas(): JSX.Element {
 
 function EmptyHint({ icon, label }: { icon: JSX.Element; label: string }): JSX.Element {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-ink-200/60 bg-paper-50/70 px-2 py-1.5 text-[11.5px] text-ink-600">
+    <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-ink-200/55 bg-paper-50/70 px-2 py-1.5 text-[11.5px] text-ink-600">
       <span className="shrink-0 text-ink-400">{icon}</span>
       <span className="truncate">{label}</span>
     </span>

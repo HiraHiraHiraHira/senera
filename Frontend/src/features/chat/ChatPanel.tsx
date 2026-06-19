@@ -87,7 +87,7 @@ export function ChatPanel({
   );
 
   return (
-    <main className="flex h-full min-w-0 flex-1 flex-col bg-paper-50">
+    <main className="flex h-full min-w-0 flex-1 flex-col bg-paper-100">
       <ChatHeader
         title={session?.title ?? DEFAULT_SESSION_TITLE}
         runStatus={currentRun?.status}

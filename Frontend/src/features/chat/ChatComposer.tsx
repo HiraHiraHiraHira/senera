@@ -234,20 +234,20 @@ export function ChatComposer({
   };
 
   return (
-    <div className="border-t border-ink-200/60 bg-paper-50 px-3 pb-4 pt-3 sm:px-6 sm:pb-6">
+    <div className="border-t border-ink-200/40 bg-paper-100 px-3 pb-4 pt-3 sm:px-6 sm:pb-6">
       <div
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "relative mx-auto flex max-w-3xl flex-col gap-1.5 rounded-2xl border border-ink-200 bg-paper-100/80 px-3 py-2 shadow-bubble-ai transition",
-          "focus-within:border-ink-300 focus-within:bg-paper-50",
-          isDraggingFiles && "border-terra-300 bg-terra-50/70 ring-2 ring-terra-200/70",
+          "relative mx-auto flex max-w-[760px] flex-col gap-1.5 rounded-[22px] border border-ink-200/80 bg-paper-50 px-3 py-2 shadow-soft transition",
+          "focus-within:border-ink-300 focus-within:bg-white",
+          isDraggingFiles && "border-terra-300 bg-terra-50/70 ring-2 ring-terra-100",
         )}
       >
         {isDraggingFiles ? (
-          <div className="pointer-events-none absolute inset-1 z-10 grid place-items-center rounded-[14px] border border-dashed border-terra-300 bg-paper-50/80 text-[13px] font-medium text-terra-700 backdrop-blur-sm">
+          <div className="pointer-events-none absolute inset-1 z-10 grid place-items-center rounded-[18px] border border-dashed border-terra-300 bg-paper-50/85 text-[13px] font-medium text-terra-700 backdrop-blur-sm">
             松开上传文件
           </div>
         ) : null}
@@ -304,7 +304,7 @@ export function ChatComposer({
                 className={cn(
                   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra-200/70 disabled:pointer-events-none disabled:opacity-50",
                   prefersCompactControls && "min-h-11 min-w-11",
-                  canSend ? "bg-ink-900 text-paper-50 hover:bg-terra-500" : "bg-ink-200/60 text-ink-400",
+                  canSend ? "bg-ink-900 text-paper-50 hover:bg-terra-500" : "bg-ink-100 text-ink-400",
                 )}
                 aria-label="send"
               >
