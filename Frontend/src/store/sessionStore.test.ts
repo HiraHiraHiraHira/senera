@@ -32,6 +32,8 @@ function resetStore(): void {
     activeSessionId: null,
     sidebarCollapsed: false,
     rightPanelCollapsed: false,
+    defaultSidebarCollapsed: false,
+    defaultRightPanelCollapsed: false,
     motionLevel: "full",
     viewedRunIdBySession: {},
     historyLoadedIds: {},
@@ -1368,6 +1370,10 @@ describe("sessionStore streaming display", () => {
 });
 
 describe("session persistence migration", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
   it("returns only persisted UI preferences when migrating legacy state", () => {
     const migrate = sessionPersistOptions.migrate;
     expect(migrate).toBeDefined();
@@ -1391,8 +1397,8 @@ describe("session persistence migration", () => {
     }, 1);
 
     expect(migrated).toEqual({
-      sidebarCollapsed: true,
-      rightPanelCollapsed: true,
+      defaultSidebarCollapsed: true,
+      defaultRightPanelCollapsed: true,
       motionLevel: "full",
       selectedModelProviderId: "provider-1",
       userProfile: {
@@ -1417,9 +1423,53 @@ describe("session persistence migration", () => {
     }, 4);
 
     expect(migrated).toMatchObject({
+      defaultSidebarCollapsed: false,
+      defaultRightPanelCollapsed: true,
+      motionLevel: "reduced",
+    });
+  });
+
+  it("hydrates current layout state from default collapse preferences", () => {
+    const merge = sessionPersistOptions.merge;
+    expect(merge).toBeDefined();
+
+    const merged = merge?.({
+      defaultSidebarCollapsed: true,
+      defaultRightPanelCollapsed: false,
+    }, {
+      ...useStore.getState(),
       sidebarCollapsed: false,
       rightPanelCollapsed: true,
-      motionLevel: "reduced",
+      defaultSidebarCollapsed: false,
+      defaultRightPanelCollapsed: false,
+    });
+
+    expect(merged).toMatchObject({
+      sidebarCollapsed: true,
+      rightPanelCollapsed: false,
+      defaultSidebarCollapsed: true,
+      defaultRightPanelCollapsed: false,
+    });
+  });
+
+  it("persists default collapse preferences instead of temporary panel state", () => {
+    const partialize = sessionPersistOptions.partialize;
+    expect(partialize).toBeDefined();
+
+    const persisted = partialize?.({
+      ...useStore.getState(),
+      sidebarCollapsed: false,
+      rightPanelCollapsed: false,
+      defaultSidebarCollapsed: true,
+      defaultRightPanelCollapsed: true,
+    });
+
+    expect(persisted).toEqual({
+      defaultSidebarCollapsed: true,
+      defaultRightPanelCollapsed: true,
+      motionLevel: "full",
+      selectedModelProviderId: null,
+      userProfile: DEFAULT_USER_PROFILE,
     });
   });
 

@@ -242,7 +242,7 @@ export function ChatComposer({
         onDrop={handleDrop}
         className={cn(
           "relative mx-auto flex max-w-[760px] flex-col gap-1.5 rounded-[22px] border border-ink-200/80 bg-paper-50 px-3 py-2 shadow-soft transition",
-          "focus-within:border-ink-300 focus-within:bg-white",
+          "focus-within:border-ink-300 focus-within:bg-paper-50",
           isDraggingFiles && "border-terra-300 bg-terra-50/70 ring-2 ring-terra-100",
         )}
       >

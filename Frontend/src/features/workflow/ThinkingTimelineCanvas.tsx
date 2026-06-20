@@ -152,7 +152,7 @@ function CanvasArea({
           variant={BackgroundVariant.Dots}
           gap={18}
           size={1}
-          color="rgba(43,40,32,0.09)"
+          color="var(--theme-canvas-grid)"
         />
         <Controls
           position="bottom-left"

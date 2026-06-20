@@ -24,7 +24,7 @@ export function EmptyChatState({
                 key={suggestion}
                 type="button"
                 onClick={() => onSelectSuggestion(suggestion)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-ink-200/70 bg-paper-50/80 px-3 py-1 text-[12.5px] text-ink-700 transition hover:border-ink-300 hover:bg-white hover:text-ink-900 focus:outline-none focus:ring-2 focus:ring-terra-200/60"
+                className="inline-flex items-center gap-1.5 rounded-full border border-ink-200/70 bg-paper-50/80 px-3 py-1 text-[12.5px] text-ink-700 transition hover:border-ink-300 hover:bg-paper-50 hover:text-ink-900 focus:outline-none focus:ring-2 focus:ring-terra-200/60"
               >
                 {suggestion}
               </button>

@@ -140,6 +140,8 @@ export interface StoreState {
   activeSessionId: string | null;
   sidebarCollapsed: boolean;
   rightPanelCollapsed: boolean;
+  defaultSidebarCollapsed: boolean;
+  defaultRightPanelCollapsed: boolean;
   motionLevel: MotionLevel;
   /** 每个 session 当前在右栏查看的 run requestId；不存在则用最新 run */
   viewedRunIdBySession: Record<string, string>;
@@ -169,6 +171,8 @@ export interface StoreState {
   toggleRightPanel: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setRightPanelCollapsed: (collapsed: boolean) => void;
+  setDefaultSidebarCollapsed: (collapsed: boolean) => void;
+  setDefaultRightPanelCollapsed: (collapsed: boolean) => void;
   setMotionLevel: (level: MotionLevel) => void;
   setViewedRun: (sessionId: string, requestId: string | undefined) => void;
   registerCreatingSession: (sessionId: string, title?: string) => void;
@@ -209,6 +213,8 @@ export const useStore = create<StoreState>()(
       activeSessionId: null,
       sidebarCollapsed: false,
       rightPanelCollapsed: false,
+      defaultSidebarCollapsed: false,
+      defaultRightPanelCollapsed: false,
       motionLevel: "full",
       viewedRunIdBySession: {},
       historyLoadedIds: {},
@@ -247,6 +253,16 @@ export const useStore = create<StoreState>()(
     setRightPanelCollapsed: (collapsed) =>
       set((state) => {
         state.rightPanelCollapsed = collapsed;
+      }),
+
+    setDefaultSidebarCollapsed: (collapsed) =>
+      set((state) => {
+        state.defaultSidebarCollapsed = collapsed;
+      }),
+
+    setDefaultRightPanelCollapsed: (collapsed) =>
+      set((state) => {
+        state.defaultRightPanelCollapsed = collapsed;
       }),
 
     setMotionLevel: (level) =>

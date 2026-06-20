@@ -2,6 +2,7 @@ import { Check, CircleAlert } from "lucide-react";
 import { cn } from "../../lib/util";
 import { Dialog, DialogActionButton, DialogActions, DialogContent, MetaLabel } from "../../shared/ui";
 import type { MotionLevel } from "../../shared/motion";
+import { ThemePreferenceControl } from "../../shared/theme";
 import type { ConfirmationIntent, LayoutPreferenceId } from "./types";
 import { motionLevelOptions, preferenceSections } from "./types";
 
@@ -121,6 +122,12 @@ export function PreferencesDialog({
         bodyClassName="p-4"
       >
         <div className="space-y-4">
+          <section>
+            <MetaLabel as="div" size="sm" className="mb-2">
+              主题
+            </MetaLabel>
+            <ThemePreferenceControl />
+          </section>
           {preferenceSections.map((section) => (
             <section key={section.id}>
               <MetaLabel as="div" size="sm" className="mb-2">

@@ -241,7 +241,7 @@ function AvatarPicker({
             选择图片后可移动和缩放裁切。
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-ink-200/80 bg-paper-50 px-3 text-[12.5px] font-medium text-ink-700 transition hover:border-ink-300 hover:bg-white hover:text-ink-900">
+            <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-ink-200/80 bg-paper-50 px-3 text-[12.5px] font-medium text-ink-700 transition hover:border-ink-300 hover:bg-paper-100 hover:text-ink-900">
               <Camera className="h-3.5 w-3.5" />
               选择图片
               <input
@@ -313,7 +313,7 @@ function AvatarCropper({
           ref={frameRef}
           className={cn(
             "relative h-48 w-48 touch-none overflow-hidden rounded-full bg-ink-950 select-none",
-            "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18),0_10px_30px_rgba(23,20,18,0.14)]",
+            "shadow-[var(--theme-inset-highlight),0_10px_30px_rgb(23_20_18_/_0.14)]",
           )}
           onPointerDown={(event) => {
             if (!image) return;

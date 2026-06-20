@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { installMotionDevTools } from "./dev/motionDevTools";
 import { AppMotionProvider } from "./shared/motion";
+import { AppThemeProvider } from "./shared/theme";
 import { useStore } from "./store/sessionStore";
 import "./index.css";
 import "./styles/transitions.css";
@@ -29,7 +30,9 @@ function Root(): JSX.Element {
   const motionLevel = useStore((state) => state.motionLevel);
   return (
     <AppMotionProvider level={motionLevel}>
-      <App />
+      <AppThemeProvider motionLevel={motionLevel}>
+        <App />
+      </AppThemeProvider>
     </AppMotionProvider>
   );
 }

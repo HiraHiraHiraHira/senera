@@ -28,14 +28,14 @@ export const preferenceSections = [
     title: "界面",
     items: [
       {
-        id: "sidebarCollapsed",
+        id: "defaultSidebarCollapsed",
         title: "默认收起左侧栏",
-        description: "保留当前侧栏状态，并在下次打开时恢复。",
+        description: "下次启动或进入宽屏布局时，左侧栏先以窄栏显示。",
       },
       {
-        id: "rightPanelCollapsed",
+        id: "defaultRightPanelCollapsed",
         title: "默认收起思维面板",
-        description: "保留右侧执行图面板状态，并在下次打开时恢复。",
+        description: "下次启动或进入宽屏布局时，思维面板先以窄栏显示。",
       },
     ],
   },

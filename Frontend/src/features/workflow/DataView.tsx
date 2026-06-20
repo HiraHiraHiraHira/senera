@@ -211,7 +211,7 @@ function SourceFrameBlock({ frame, depth }: { frame: SourceFrame; depth: number 
             {formatLineRange(frame)}
           </span>
         </div>
-        <pre className="max-h-[360px] overflow-auto bg-[#f7f7f5] px-0 py-2 font-mono text-[12px] leading-5 text-ink-900 scrollbar-thin">
+        <pre className="max-h-[360px] overflow-auto bg-paper-100 px-0 py-2 font-mono text-[12px] leading-5 text-ink-900 scrollbar-thin">
           <code>
             {frame.code.split(/\r?\n/).map((line, index) => {
               const parsed = parseNumberedLine(line);

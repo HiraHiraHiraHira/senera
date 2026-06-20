@@ -55,13 +55,14 @@ export function SessionList({
   const order = useStore((s) => s.sessionOrder);
   const active = useStore((s) => s.activeSessionId);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const rightPanelCollapsed = useStore((s) => s.rightPanelCollapsed);
+  const defaultSidebarCollapsed = useStore((s) => s.defaultSidebarCollapsed);
+  const defaultRightPanelCollapsed = useStore((s) => s.defaultRightPanelCollapsed);
   const motionLevel = useStore((s) => s.motionLevel);
   const historyLoadingIds = useStore((s) => s.historyLoadingIds);
   const select = useStore((s) => s.selectSession);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
-  const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
-  const setRightPanelCollapsed = useStore((s) => s.setRightPanelCollapsed);
+  const setDefaultSidebarCollapsed = useStore((s) => s.setDefaultSidebarCollapsed);
+  const setDefaultRightPanelCollapsed = useStore((s) => s.setDefaultRightPanelCollapsed);
   const setMotionLevel = useStore((s) => s.setMotionLevel);
   const { prefersCompactControls, supportsHover } = useResponsiveMode();
   const showInlineRowActions = prefersCompactControls || !supportsHover;
@@ -126,14 +127,14 @@ export function SessionList({
   };
 
   const layoutPreferenceValues = {
-    sidebarCollapsed: collapsed,
-    rightPanelCollapsed,
+    defaultSidebarCollapsed,
+    defaultRightPanelCollapsed,
   } satisfies Record<LayoutPreferenceId, boolean>;
 
   const setLayoutPreference = (id: LayoutPreferenceId, value: boolean): void => {
     const setters = {
-      sidebarCollapsed: setSidebarCollapsed,
-      rightPanelCollapsed: setRightPanelCollapsed,
+      defaultSidebarCollapsed: setDefaultSidebarCollapsed,
+      defaultRightPanelCollapsed: setDefaultRightPanelCollapsed,
     } satisfies Record<LayoutPreferenceId, (value: boolean) => void>;
     setters[id](value);
   };

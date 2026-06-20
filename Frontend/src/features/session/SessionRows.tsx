@@ -144,7 +144,7 @@ export function EmptyState({ onNewSession }: { onNewSession: () => void }): JSX.
       <button
         type="button"
         onClick={onNewSession}
-        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-ink-200/70 bg-paper-50/80 px-2.5 py-1 text-[12px] text-ink-800 transition hover:border-ink-300 hover:bg-white"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-ink-200/70 bg-paper-50/80 px-2.5 py-1 text-[12px] text-ink-800 transition hover:border-ink-300 hover:bg-paper-50"
       >
         <SquarePen className="h-3 w-3" />
         开始新对话

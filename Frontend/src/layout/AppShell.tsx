@@ -1,5 +1,5 @@
 import { motion, type Transition } from "framer-motion";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Sheet, SheetContent } from "../shared/ui";
 import { motionTimings, useMotionLevel } from "../shared/motion";
 import { useStore } from "../store/sessionStore";
@@ -95,11 +95,17 @@ export function AppShell({
 }: AppShellProps): JSX.Element {
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
   const rightPanelCollapsed = useStore((state) => state.rightPanelCollapsed);
+  const defaultSidebarCollapsed = useStore((state) => state.defaultSidebarCollapsed);
+  const defaultRightPanelCollapsed = useStore((state) => state.defaultRightPanelCollapsed);
+  const setSidebarCollapsed = useStore((state) => state.setSidebarCollapsed);
+  const setRightPanelCollapsed = useStore((state) => state.setRightPanelCollapsed);
   const { reduceMotion, disableMotion } = useMotionLevel();
   const panelResizeTransition: Transition =
     disableMotion || reduceMotion ? { duration: 0 } : motionTimings.slow;
   const renderPlan = readAppShellRenderPlan(responsiveMode);
   const workflowPanelWidth = readWorkflowPanelWidth(responsiveMode);
+  const hadPersistentSessionPanel = useRef(renderPlan.showSessionPersistentPanel);
+  const hadPersistentWorkflowPanel = useRef(renderPlan.showWorkflowPersistentPanel);
 
   useEffect(() => {
     if (responsiveMode.hasPersistentSessionPanel && sessionDrawerOpen) {
@@ -115,6 +121,24 @@ export function AppShell({
     responsiveMode.hasPersistentWorkflowPanel,
     sessionDrawerOpen,
     workflowDrawerOpen,
+  ]);
+
+  useEffect(() => {
+    if (renderPlan.showSessionPersistentPanel && !hadPersistentSessionPanel.current) {
+      setSidebarCollapsed(defaultSidebarCollapsed);
+    }
+    if (renderPlan.showWorkflowPersistentPanel && !hadPersistentWorkflowPanel.current) {
+      setRightPanelCollapsed(defaultRightPanelCollapsed);
+    }
+    hadPersistentSessionPanel.current = renderPlan.showSessionPersistentPanel;
+    hadPersistentWorkflowPanel.current = renderPlan.showWorkflowPersistentPanel;
+  }, [
+    defaultRightPanelCollapsed,
+    defaultSidebarCollapsed,
+    renderPlan.showSessionPersistentPanel,
+    renderPlan.showWorkflowPersistentPanel,
+    setRightPanelCollapsed,
+    setSidebarCollapsed,
   ]);
 
   return (

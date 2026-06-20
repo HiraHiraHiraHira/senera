@@ -197,7 +197,7 @@ function TopBar({
             ) : null}
           </MetaLabel>
           {pinnedToHistory ? (
-          <div className="flex shrink-0 items-center gap-1 rounded-md border border-ink-200/55 bg-paper-50/75 p-0.5 shadow-[0_1px_0_rgba(43,40,32,0.035)]">
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-ink-200/55 bg-paper-50/75 p-0.5 shadow-panel">
             <button
               type="button"
               onClick={onFollowLatest}
@@ -350,7 +350,7 @@ function EmptyCanvas(): JSX.Element {
       transition={disableMotion ? { duration: 0 } : reduceMotion ? motionTimings.base : motionSprings.soft}
       className="flex max-w-[320px] flex-col items-center px-6 text-center"
     >
-      <div className="grid h-11 w-11 place-items-center rounded-xl border border-ink-200/60 bg-paper-50 shadow-[0_1px_2px_rgba(43,40,32,0.035)]">
+      <div className="grid h-11 w-11 place-items-center rounded-xl border border-ink-200/60 bg-paper-50 shadow-panel">
         <ListTree className="h-5 w-5 text-ink-500" />
       </div>
       <p className="mt-3 text-[13px] font-medium text-ink-850">

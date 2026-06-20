@@ -7,18 +7,22 @@ export const PERSIST_KEY = "senera-frontend@v1";
 
 type PersistedSessionState = Partial<Pick<
   StoreState,
-  "motionLevel" | "rightPanelCollapsed" | "selectedModelProviderId" | "sidebarCollapsed" | "userProfile"
+  | "defaultRightPanelCollapsed"
+  | "defaultSidebarCollapsed"
+  | "motionLevel"
+  | "selectedModelProviderId"
+  | "userProfile"
 >>;
 
 export const sessionPersistOptions: PersistOptions<StoreState, PersistedSessionState> = {
   name: PERSIST_KEY,
-  version: 4,
+  version: 5,
   storage: createJSONStorage(() => localStorage),
   // 后端是 SSOT；前端只缓存 UI 偏好 + 会话元数据（标题/时间）。
   // messages 不持久化 —— 后端 session.history 会权威回放。
   partialize: (state) => ({
-    sidebarCollapsed: state.sidebarCollapsed,
-    rightPanelCollapsed: state.rightPanelCollapsed,
+    defaultSidebarCollapsed: state.defaultSidebarCollapsed,
+    defaultRightPanelCollapsed: state.defaultRightPanelCollapsed,
     motionLevel: state.motionLevel,
     selectedModelProviderId: state.selectedModelProviderId,
     userProfile: state.userProfile,
@@ -35,9 +39,13 @@ export const sessionPersistOptions: PersistOptions<StoreState, PersistedSessionS
     if (fromVersion < 4) {
       p.motionLevel = "full";
     }
+    const defaultSidebarCollapsed =
+      readPersistedBoolean(p.defaultSidebarCollapsed) ?? readPersistedBoolean(p.sidebarCollapsed) ?? false;
+    const defaultRightPanelCollapsed =
+      readPersistedBoolean(p.defaultRightPanelCollapsed) ?? readPersistedBoolean(p.rightPanelCollapsed) ?? false;
     return {
-      sidebarCollapsed: p.sidebarCollapsed,
-      rightPanelCollapsed: p.rightPanelCollapsed,
+      defaultSidebarCollapsed,
+      defaultRightPanelCollapsed,
       motionLevel: readPersistedMotionLevel(p.motionLevel),
       selectedModelProviderId: p.selectedModelProviderId,
       userProfile: p.userProfile,
@@ -46,10 +54,16 @@ export const sessionPersistOptions: PersistOptions<StoreState, PersistedSessionS
   // 即便 migrate 漏掉字段，merge 兜底
   merge: (persisted, current) => {
     const p = (persisted ?? {}) as Partial<StoreState>;
+    const defaultSidebarCollapsed =
+      readPersistedBoolean(p.defaultSidebarCollapsed) ?? readPersistedBoolean(p.sidebarCollapsed) ?? false;
+    const defaultRightPanelCollapsed =
+      readPersistedBoolean(p.defaultRightPanelCollapsed) ?? readPersistedBoolean(p.rightPanelCollapsed) ?? false;
     return {
       ...current,
-      sidebarCollapsed: p.sidebarCollapsed ?? false,
-      rightPanelCollapsed: p.rightPanelCollapsed ?? false,
+      sidebarCollapsed: defaultSidebarCollapsed,
+      rightPanelCollapsed: defaultRightPanelCollapsed,
+      defaultSidebarCollapsed,
+      defaultRightPanelCollapsed,
       motionLevel: readPersistedMotionLevel(p.motionLevel),
       selectedModelProviderId: p.selectedModelProviderId ?? null,
       userProfile: normalizeUserProfile(p.userProfile),
@@ -73,6 +87,10 @@ export const sessionPersistOptions: PersistOptions<StoreState, PersistedSessionS
 
 function readPersistedMotionLevel(value: unknown): MotionLevel {
   return value === "reduced" || value === "none" || value === "full" ? value : "full";
+}
+
+function readPersistedBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 export function clearPersistedStore(): void {

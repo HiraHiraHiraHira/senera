@@ -9,7 +9,7 @@ import {
 describe("CodeHighlighter", () => {
   it("normalizes highlight cache keys without loading the highlighter runtime", () => {
     expect(readHighlightCacheKey({ code: "const x = 1;", language: " TypeScript " }))
-      .toBe("github-light\u0000typescript\u0000const x = 1;");
+      .toBe("github-light+github-dark-dimmed\u0000typescript\u0000const x = 1;");
   });
 
   it("removes failed highlight requests from the cache", async () => {
@@ -39,6 +39,7 @@ describe("CodeHighlighter", () => {
     const html = await highlightCode({ code: "const x: number = 1;", language: "ts" });
 
     expect(html).toContain("<pre");
+    expect(html).toContain("--shiki-dark");
     expect(html).toContain("data-line");
     expect(html).toContain("const");
   });
