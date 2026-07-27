@@ -33,6 +33,7 @@
         "VerifyPluginRuntimeBundleProjection.js",
         "VerifyToolSignatureMappingAndPlanValidation.js",
         "VerifyModelProviderEndpointConfig.js",
+        "VerifyProviderModelDomainCommands.js",
         "VerifyOpenAiCompatibleMessageProjection.js",
         "VerifyAgentConfigFormProjection.js",
         "VerifyModelTimeoutConfig.js",
@@ -65,9 +66,13 @@
       "description": "Frontend test governance and UI behavior through Vitest.",
       "patterns": ["VerifyFrontendTestCoverage.js"]
     },
+    "integration": {
+      "description": "Cross-component protocol, frontend bridge, and runtime integration governance.",
+      "patterns": ["VerifyIntegrationTestCoverage.js"]
+    },
     "e2e": {
-      "description": "End-to-end test governance and protocol behavior.",
-      "patterns": ["VerifyE2eTestCoverage.js"]
+      "description": "Real-browser end-to-end architecture and journey governance.",
+      "patterns": ["VerifyBrowserE2eContracts.js"]
     },
     "platform": {
       "description": "Cross-platform execution, sandbox, and desktop path smoke checks.",
@@ -83,7 +88,8 @@
         "VerifyDesktopRuntimeAssetSync.js",
         "VerifyDesktopRuntimePaths.js",
         "VerifyDesktopFrontendSource.js",
-        "VerifyDesktopLiveFrontendServer.js"
+        "VerifyDesktopLiveFrontendServer.js",
+        "VerifyDesktopLiveLifecycle.js"
       ]
     },
     "release": {

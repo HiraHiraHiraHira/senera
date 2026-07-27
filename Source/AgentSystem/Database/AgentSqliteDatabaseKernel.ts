@@ -7,8 +7,12 @@ import {
   AgentSqliteMigrationErrorCodes,
   migrateAgentSqliteStore,
   planAgentSqliteStoreReconciliation,
+  type AgentSqliteStoreReconciliation,
 } from "./AgentSqliteMigrationRunner.js";
 import { AgentSqliteStoreDataClasses, type AgentSqliteStoreContract } from "./AgentSqliteStoreContract.js";
+import type { AgentUpgradeSession } from "../Upgrade/AgentUpgradeSession.js";
+import { errorMessage } from "../Core/AgentErrors.js";
+import { nodeErrorCode } from "../Core/AgentFs.js";
 
 export const AgentSqliteJournalModes = {
   Wal: "WAL",
@@ -38,6 +42,7 @@ export interface AgentSqliteDatabaseOptions {
   readonly databasePath: string;
   readonly contract: AgentSqliteStoreContract;
   readonly profile?: AgentSqliteDatabaseProfile;
+  readonly upgradeSession?: AgentUpgradeSession;
 }
 
 export interface AgentSqliteDatabaseHealth {
@@ -52,9 +57,22 @@ export interface AgentSqliteForeignKeyViolation {
   readonly fkid: number;
 }
 
+export interface AgentSqliteDatabaseRecovery {
+  readonly storeId: string;
+  readonly databasePath: string;
+  readonly backupPath: string;
+  readonly reason: string;
+}
+
+interface OpenedAgentSqliteDatabase {
+  readonly connection: Database.Database;
+  readonly recovery?: AgentSqliteDatabaseRecovery;
+}
+
 export class AgentSqliteDatabaseKernel {
   readonly databasePath: string;
   readonly connection: Database.Database;
+  readonly recovery?: AgentSqliteDatabaseRecovery;
   private readonly checkpointOnClose: boolean;
   private closed = false;
 
@@ -63,7 +81,9 @@ export class AgentSqliteDatabaseKernel {
     this.databasePath = path.resolve(options.databasePath);
     this.checkpointOnClose = profile.checkpointOnClose;
     fs.mkdirSync(path.dirname(this.databasePath), { recursive: true });
-    this.connection = openDatabase(this.databasePath, profile, options.contract);
+    const opened = openDatabase(this.databasePath, profile, options.contract, options.upgradeSession);
+    this.connection = opened.connection;
+    this.recovery = opened.recovery;
   }
 
   inspectHealth(): AgentSqliteDatabaseHealth {
@@ -100,12 +120,13 @@ function openDatabase(
   databasePath: string,
   profile: AgentSqliteDatabaseProfile,
   contract: AgentSqliteStoreContract,
-): Database.Database {
+  upgradeSession?: AgentUpgradeSession,
+): OpenedAgentSqliteDatabase {
   if (contract.dataClass === AgentSqliteStoreDataClasses.Authoritative) {
-    return openAuthoritativeDatabase(databasePath, profile, contract);
+    return openAuthoritativeDatabase(databasePath, profile, contract, upgradeSession);
   }
   if (contract.dataClass === AgentSqliteStoreDataClasses.Derived) {
-    return openDerivedDatabase(databasePath, profile, contract);
+    return openDerivedDatabase(databasePath, profile, contract, upgradeSession);
   }
   throw new TypeError("Unsupported SQLite store data class.");
 }
@@ -114,36 +135,83 @@ function openAuthoritativeDatabase(
   databasePath: string,
   profile: AgentSqliteDatabaseProfile,
   contract: AgentSqliteStoreContract,
-): Database.Database {
-  const database = new Database(databasePath);
+  upgradeSession?: AgentUpgradeSession,
+): OpenedAgentSqliteDatabase {
+  let database: Database.Database | undefined;
+  let plan: AgentSqliteStoreReconciliation;
   try {
+    database = new Database(databasePath);
     configureConnection(database, profile);
     assertDatabaseIntegrity(database, contract.id);
-    migrateAgentSqliteStore(database, contract);
-    return database;
+    plan = reconcileStore(database, contract);
   } catch (error) {
-    database.close();
-    if (!shouldRebuildAuthoritativeStore(error)) throw error;
+    if (!isRecoverablePreflightError(error)) {
+      database?.close();
+      throw error;
+    }
+    const upgradeRecoveryPrepared = prepareUpgradeReinitializationAndClose(
+      upgradeSession,
+      database,
+      databasePath,
+      contract,
+      error,
+    );
+    const recovered = recoverStoreDatabase(databasePath, profile, contract, error);
+    if (upgradeRecoveryPrepared) upgradeSession?.markSqliteMigrationApplied(contract.id);
+    return recovered;
   }
 
-  replaceStoreDatabase(databasePath, profile, contract);
-  return openRebuiltStoreDatabase(databasePath, profile, contract);
+  try {
+    if (upgradeSession) {
+      upgradeSession.migrateSqlite({ database, databasePath, contract, plan });
+    } else {
+      migrateAgentSqliteStore(database, contract);
+    }
+    return { connection: database };
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 }
 
 function openDerivedDatabase(
   databasePath: string,
   profile: AgentSqliteDatabaseProfile,
   contract: AgentSqliteStoreContract,
-): Database.Database {
-  const database = new Database(databasePath);
+  upgradeSession?: AgentUpgradeSession,
+): OpenedAgentSqliteDatabase {
+  let database: Database.Database | undefined;
+  let plan: AgentSqliteStoreReconciliation;
   try {
+    database = new Database(databasePath);
     configureConnection(database, profile);
     assertDatabaseIntegrity(database, contract.id);
-    const plan = planAgentSqliteStoreReconciliation(database, contract);
-    if (plan.kind === "current") return database;
+    plan = reconcileStore(database, contract);
+  } catch (error) {
+    if (!isRecoverablePreflightError(error)) {
+      database?.close();
+      throw error;
+    }
+    const upgradeRecoveryPrepared = prepareUpgradeReinitializationAndClose(
+      upgradeSession,
+      database,
+      databasePath,
+      contract,
+      error,
+    );
+    const recovered = recoverStoreDatabase(databasePath, profile, contract, error);
+    if (upgradeRecoveryPrepared) upgradeSession?.markSqliteMigrationApplied(contract.id);
+    return recovered;
+  }
+
+  try {
+    if (plan.kind === "current") return { connection: database };
     if (plan.kind === "initialize") {
       migrateAgentSqliteStore(database, contract);
-      return database;
+      return { connection: database };
+    }
+    if (plan.kind === "rebuild" && upgradeSession) {
+      upgradeSession.prepareDerivedSqliteRebuild({ database, databasePath, contract, plan });
     }
   } catch (error) {
     database.close();
@@ -151,8 +219,121 @@ function openDerivedDatabase(
   }
   database.close();
 
-  replaceStoreDatabase(databasePath, profile, contract);
-  return openRebuiltStoreDatabase(databasePath, profile, contract);
+  if (plan.kind !== "rebuild") {
+    throw new Error(`SQLite store ${contract.id} reached an unsupported rebuild plan: ${plan.kind}.`);
+  }
+  const replacement = replaceAndOpenStoreWithRecovery(
+    databasePath,
+    profile,
+    contract,
+    `SQLite store ${contract.id} was rebuilt to match its current contract.`,
+  );
+  upgradeSession?.markSqliteMigrationApplied(contract.id);
+  return replacement;
+}
+
+function recoverStoreDatabase(
+  databasePath: string,
+  profile: AgentSqliteDatabaseProfile,
+  contract: AgentSqliteStoreContract,
+  cause: unknown,
+): OpenedAgentSqliteDatabase {
+  return replaceAndOpenStoreWithRecovery(databasePath, profile, contract, errorMessage(cause), cause);
+}
+
+function replaceAndOpenStoreWithRecovery(
+  databasePath: string,
+  profile: AgentSqliteDatabaseProfile,
+  contract: AgentSqliteStoreContract,
+  reason: string,
+  warningCause?: unknown,
+): OpenedAgentSqliteDatabase {
+  const backupPath = recoveryBackupPath(databasePath, contract.id);
+  replaceStoreDatabase(databasePath, profile, contract, { preservePreviousAt: backupPath });
+  let connection: Database.Database;
+  try {
+    connection = openRebuiltStoreDatabase(databasePath, profile, contract);
+  } catch (error) {
+    try {
+      restoreStoreDatabaseFromBackup(databasePath, backupPath);
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        `SQLite store ${contract.id} could not be opened or restored from its recovery backup.`,
+        { cause: restoreError },
+      );
+    }
+    throw new Error(errorMessage(error), { cause: error });
+  }
+  const recovery = {
+    storeId: contract.id,
+    databasePath,
+    backupPath,
+    reason,
+  } satisfies AgentSqliteDatabaseRecovery;
+  process.emitWarning(`SQLite store ${contract.id} was reinitialized; the original database is at ${backupPath}.`, {
+    code: "SENERA_SQLITE_STORE_RECOVERED",
+    detail: warningCause ? errorMessage(warningCause) : recovery.reason,
+  });
+  return { connection, recovery };
+}
+
+function isRecoverablePreflightError(error: unknown): boolean {
+  if (error instanceof AgentSqliteMigrationError || error instanceof AgentSqliteDatabaseIntegrityError) return true;
+  const code = nodeErrorCode(error);
+  return code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB";
+}
+
+function prepareUpgradeReinitialization(
+  upgradeSession: AgentUpgradeSession | undefined,
+  database: Database.Database | undefined,
+  databasePath: string,
+  contract: AgentSqliteStoreContract,
+  cause: unknown,
+): boolean {
+  if (!upgradeSession || !database || isDatabaseIntegrityFailure(cause)) return false;
+  upgradeSession.prepareSqliteReinitialize({ database, databasePath, contract });
+  return true;
+}
+
+function prepareUpgradeReinitializationAndClose(
+  upgradeSession: AgentUpgradeSession | undefined,
+  database: Database.Database | undefined,
+  databasePath: string,
+  contract: AgentSqliteStoreContract,
+  cause: unknown,
+): boolean {
+  try {
+    return prepareUpgradeReinitialization(upgradeSession, database, databasePath, contract, cause);
+  } finally {
+    database?.close();
+  }
+}
+
+function isDatabaseIntegrityFailure(error: unknown): boolean {
+  if (error instanceof AgentSqliteDatabaseIntegrityError) return true;
+  const code = nodeErrorCode(error);
+  return code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB";
+}
+
+function recoveryBackupPath(databasePath: string, storeId: string): string {
+  const timestamp = new Date().toISOString().replace(/[-:.TZ]/gu, "");
+  return `${databasePath}.${storeId}.${timestamp}.${randomUUID()}.recovery`;
+}
+
+function reconcileStore(
+  database: Database.Database,
+  contract: AgentSqliteStoreContract,
+): AgentSqliteStoreReconciliation {
+  try {
+    return planAgentSqliteStoreReconciliation(database, contract);
+  } catch (error) {
+    if (error instanceof AgentSqliteMigrationError) throw error;
+    throw new AgentSqliteMigrationError(
+      AgentSqliteMigrationErrorCodes.SchemaMismatch,
+      `SQLite store ${contract.id} could not be reconciled: ${errorMessage(error)}`,
+    );
+  }
 }
 
 function openRebuiltStoreDatabase(
@@ -164,8 +345,8 @@ function openRebuiltStoreDatabase(
   try {
     configureConnection(replacement, profile);
     assertDatabaseIntegrity(replacement, contract.id);
-    if (planAgentSqliteStoreReconciliation(replacement, contract).kind !== "current") {
-      throw new Error(`Derived SQLite store ${contract.id} was not rebuilt to its current contract.`);
+    if (reconcileStore(replacement, contract).kind !== "current") {
+      throw new Error(`SQLite store ${contract.id} was not rebuilt to its current contract.`);
     }
     return replacement;
   } catch (error) {
@@ -174,10 +355,22 @@ function openRebuiltStoreDatabase(
   }
 }
 
+function restoreStoreDatabaseFromBackup(databasePath: string, backupPath: string): void {
+  removeDatabaseFiles(databasePath);
+  const sourceFiles = databaseFilePaths(backupPath);
+  const targetFiles = databaseFilePaths(databasePath);
+  for (const [index, sourcePath] of sourceFiles.entries()) {
+    const targetPath = targetFiles[index];
+    if (!targetPath) continue;
+    if (fs.existsSync(sourcePath)) fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+  }
+}
+
 function replaceStoreDatabase(
   databasePath: string,
   profile: AgentSqliteDatabaseProfile,
   contract: AgentSqliteStoreContract,
+  options: { preservePreviousAt?: string } = {},
 ): void {
   const stagingPath = `${databasePath}.${randomUUID()}.next`;
   const staging = new Database(stagingPath);
@@ -189,20 +382,40 @@ function replaceStoreDatabase(
     staging.close();
   }
 
+  const previousPath = options.preservePreviousAt ?? `${databasePath}.${randomUUID()}.replaced`;
+  const movedFiles: string[] = [];
   let committed = false;
   try {
-    removeDatabaseFiles(databasePath);
+    for (const filePath of databaseFilePaths(databasePath)) {
+      if (!fs.existsSync(filePath)) continue;
+      const movedPath = filePath.replace(databasePath, previousPath);
+      fs.renameSync(filePath, movedPath);
+      movedFiles.push(movedPath);
+    }
     fs.renameSync(stagingPath, databasePath);
     committed = true;
   } finally {
-    if (!committed) removeDatabaseFiles(stagingPath);
+    if (committed && !options.preservePreviousAt) {
+      removeDatabaseFiles(previousPath);
+    } else if (!committed) {
+      removeDatabaseFiles(stagingPath);
+      for (const movedPath of movedFiles.reverse()) {
+        const originalPath = movedPath.replace(previousPath, databasePath);
+        fs.renameSync(movedPath, originalPath);
+      }
+      removeDatabaseFiles(previousPath);
+    }
   }
 }
 
 function removeDatabaseFiles(databasePath: string): void {
-  for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
+  for (const filePath of databaseFilePaths(databasePath)) {
     fs.rmSync(filePath, { force: true });
   }
+}
+
+function databaseFilePaths(databasePath: string): string[] {
+  return [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
 }
 
 function assertDatabaseIntegrity(database: Database.Database, storeId: string): void {
@@ -212,13 +425,6 @@ function assertDatabaseIntegrity(database: Database.Database, storeId: string): 
       `SQLite store ${storeId} integrity check failed: ${String(integrity)}.`,
     );
   }
-}
-
-function shouldRebuildAuthoritativeStore(error: unknown): boolean {
-  if (error instanceof AgentSqliteDatabaseIntegrityError) return true;
-  return (
-    error instanceof AgentSqliteMigrationError && error.code !== AgentSqliteMigrationErrorCodes.ContractIdentityMismatch
-  );
 }
 
 class AgentSqliteDatabaseIntegrityError extends Error {

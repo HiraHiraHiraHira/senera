@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   AgentModelProviderEndpointConfig,
   AgentSystemConfig,
@@ -28,9 +29,16 @@ export interface AgentProviderModelDiscoveryOptions {
 }
 
 interface CachedProviderModels {
-  fingerprint: string;
+  requestIdentity: ProviderModelsRequestIdentity;
   snapshot: AgentProviderModelSnapshot;
 }
+
+type ProviderModelsRequestIdentity = Pick<
+  ResolvedAgentModelProviderEndpointConfig,
+  "Kind" | "BaseUrl" | "ApiKey" | "ApiVersion" | "Headers"
+>;
+
+const DISCOVERY_TIMEOUT_MS = 20_000;
 
 export class AgentProviderModelDiscovery {
   private readonly fetchImpl: typeof fetch;
@@ -48,15 +56,8 @@ export class AgentProviderModelDiscovery {
     const endpoint = input.endpoint
       ? resolveStandaloneModelProviderEndpointConfig({ ...input.endpoint, Id: input.providerId })
       : this.resolveEndpoint(input.providerId);
-    const fingerprint = endpointFingerprint(endpoint);
-    const cached = this.cache.get(endpoint.Id);
-    if (!input.force && cached?.fingerprint === fingerprint) {
-      return {
-        ...cached.snapshot,
-        source: "cache",
-      };
-    }
-
+    // Reject disabled/unconfigured endpoints before consulting the cache — a
+    // warm cache must not mask an endpoint that can no longer be queried.
     if (!endpoint.Enabled) {
       throw new Error(
         agentErrorMessage("model.listProviderDisabled", {
@@ -73,10 +74,37 @@ export class AgentProviderModelDiscovery {
       );
     }
 
-    const response = await this.fetchImpl(modelsUrl(endpoint.BaseUrl), {
-      method: "GET",
-      headers: providerHeaders(endpoint),
-    });
+    const requestIdentity = providerModelsRequestIdentity(endpoint);
+    const cached = this.cache.get(endpoint.Id);
+    if (!input.force && cached && isDeepStrictEqual(cached.requestIdentity, requestIdentity)) {
+      return {
+        ...cached.snapshot,
+        source: "cache",
+      };
+    }
+
+    let response: Awaited<ReturnType<typeof fetch>>;
+    try {
+      response = await this.fetchImpl(modelsUrl(endpoint.BaseUrl), {
+        method: "GET",
+        headers: providerHeaders(endpoint),
+        // Unreachable endpoints must not hang the request (and the UI spinner)
+        // for undici's multi-minute default timeout.
+        signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new Error(
+          agentErrorMessage("model.listRequestFailed", {
+            providerId: endpoint.Id,
+            status: 408,
+            statusText: "timeout",
+          }),
+          { cause: error },
+        );
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       throw new Error(
@@ -96,7 +124,7 @@ export class AgentProviderModelDiscovery {
       models: parseModelListResponse(await response.json()),
     };
     this.cache.set(endpoint.Id, {
-      fingerprint,
+      requestIdentity,
       snapshot,
     });
     return snapshot;
@@ -117,13 +145,14 @@ function modelsUrl(baseUrl: string): URL {
   return url;
 }
 
-function providerHeaders(endpoint: ResolvedAgentModelProviderEndpointConfig): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    ...endpoint.Headers,
-  };
-  if (endpoint.ApiKey.trim()) {
-    headers.Authorization = `Bearer ${endpoint.ApiKey}`;
+function providerHeaders(endpoint: ResolvedAgentModelProviderEndpointConfig): Headers {
+  const headers = new Headers(endpoint.Headers);
+  if (!headers.has("accept")) {
+    headers.set("accept", "application/json");
+  }
+  const apiKey = endpoint.ApiKey.trim();
+  if (apiKey && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${apiKey}`);
   }
   return headers;
 }
@@ -174,13 +203,16 @@ function parseModelInfo(value: unknown): AgentProviderModelInfo | null {
   };
 }
 
-function endpointFingerprint(endpoint: ResolvedAgentModelProviderEndpointConfig): string {
-  return JSON.stringify({
-    kind: endpoint.Kind,
-    baseUrl: endpoint.BaseUrl,
-    apiVersion: endpoint.ApiVersion,
-    headers: endpoint.Headers,
-  });
+function providerModelsRequestIdentity(
+  endpoint: ResolvedAgentModelProviderEndpointConfig,
+): ProviderModelsRequestIdentity {
+  return {
+    Kind: endpoint.Kind,
+    BaseUrl: endpoint.BaseUrl,
+    ApiKey: endpoint.ApiKey,
+    ApiVersion: endpoint.ApiVersion,
+    Headers: { ...endpoint.Headers },
+  };
 }
 
 function withTrailingSlash(value: string): string {

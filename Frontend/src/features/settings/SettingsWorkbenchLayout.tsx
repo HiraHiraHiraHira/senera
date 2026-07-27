@@ -2,16 +2,8 @@ import type { MutableRefObject, ReactNode, Ref } from "react";
 import { Menu, MonitorCog, Search, X } from "lucide-react";
 import { frontendMessage } from "../../i18n/frontendMessageCatalog";
 import { cn } from "../../lib/util";
-import {
-  Dialog,
-  DialogActionButton,
-  DialogActions,
-  DialogContent,
-  IconButton,
-  ScrollArea,
-  Sheet,
-  SheetContent,
-} from "../../shared/ui";
+import { IconButton, ScrollArea, Sheet, SheetContent } from "../../shared/ui";
+import { DiscardDraftDialog } from "./DiscardDraftDialog";
 import type { groupSettingsSectionResults } from "./settingsPresentation";
 import type { SettingsSectionDefinition, SettingsSectionId } from "./types";
 
@@ -64,7 +56,7 @@ export function SettingsWorkbenchLayout({
           </IconButton>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13.5px] font-semibold text-ink-900">{activeSection.label}</div>
-            <div className="truncate text-[11px] text-ink-450">{frontendMessage("settings.header.title")}</div>
+            <div className="truncate text-[11px] text-ink-500">{frontendMessage("settings.header.title")}</div>
           </div>
           {shellActions}
         </header>
@@ -82,7 +74,7 @@ export function SettingsWorkbenchLayout({
                 <h1 className="truncate text-[14px] font-semibold text-ink-900">
                   {frontendMessage("settings.header.title")}
                 </h1>
-                <p className="truncate text-[11.5px] text-ink-450">{frontendMessage("settings.header.subtitle")}</p>
+                <p className="truncate text-[11.5px] text-ink-500">{frontendMessage("settings.header.subtitle")}</p>
               </div>
               {shellActions}
             </div>
@@ -188,7 +180,7 @@ export function SettingsNavigation({
             </div>
           ))}
           {groupedResults.length === 0 ? (
-            <div className="px-2 py-5 text-center text-[12px] leading-5 text-ink-450">
+            <div className="px-2 py-5 text-center text-[12px] leading-5 text-ink-500">
               {frontendMessage("settings.nav.empty")}
             </div>
           ) : null}
@@ -231,7 +223,7 @@ function SettingsNavItem({
         {searchDetails.map((detail) => (
           <span
             key={`${detail.label}:${detail.value}`}
-            className="mt-0.5 block truncate text-[10.5px] leading-4 text-ink-450"
+            className="mt-0.5 block truncate text-[10.5px] leading-4 text-ink-500"
           >
             {detail.label}: {detail.value}
           </span>
@@ -270,18 +262,15 @@ export function DiscardSectionDraftDialog({
   onDiscard: () => void;
 }): JSX.Element {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        title={frontendMessage("settings.discard.title")}
-        description={frontendMessage("settings.discard.switchDescription")}
-      >
-        <DialogActions>
-          <DialogActionButton close>{frontendMessage("settings.discard.continue")}</DialogActionButton>
-          <DialogActionButton variant="danger" onClick={onDiscard}>
-            {frontendMessage("settings.discard.confirm")}
-          </DialogActionButton>
-        </DialogActions>
-      </DialogContent>
-    </Dialog>
+    <DiscardDraftDialog
+      open={open}
+      title={frontendMessage("settings.discard.title")}
+      description={frontendMessage("settings.discard.switchDescription")}
+      consequence={frontendMessage("settings.discard.savedUnaffected")}
+      continueLabel={frontendMessage("settings.discard.continue")}
+      confirmLabel={frontendMessage("settings.discard.sectionConfirm")}
+      onOpenChange={onOpenChange}
+      onDiscard={onDiscard}
+    />
   );
 }

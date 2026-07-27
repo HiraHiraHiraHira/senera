@@ -4,12 +4,12 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 import { AgentConfigDatabaseContract } from "../../../Source/AgentSystem/Config/AgentConfigSqlSchema.js";
+import {
+  AgentSqliteContractMetadataTable,
+  AgentSqliteMigrationLedgerTable,
+} from "../../../Source/AgentSystem/Database/AgentSqliteDatabaseSchema.js";
 import { AgentSqliteDatabaseKernel } from "../../../Source/AgentSystem/Database/AgentSqliteDatabaseKernel.js";
 import type { AgentSqliteStoreContract } from "../../../Source/AgentSystem/Database/AgentSqliteStoreContract.js";
-import {
-  AgentSqliteMigrationError,
-  AgentSqliteMigrationErrorCodes,
-} from "../../../Source/AgentSystem/Database/AgentSqliteMigrationRunner.js";
 import { AgentMemoryDatabaseContract } from "../../../Source/AgentSystem/Memory/AgentMemorySqlSchema.js";
 import { AgentSessionDatabaseContract } from "../../../Source/AgentSystem/SessionPersistence/AgentSessionSqlSchema.js";
 import { AgentToolSearchLearningStoreContract } from "../../../Source/AgentSystem/ToolSearch/AgentToolSearchMemorySqlSchema.js";
@@ -94,23 +94,35 @@ describe("SQLite database kernel", () => {
         count: 0,
       });
       expect(recordedVersions(kernel.connection)).toEqual(declaredVersions(AgentToolSearchLearningStoreContract));
+      const backup = openRecoveryBackup(kernel);
+      expect(columnNames(backup, "tool_search_episodes")).not.toContain("learned_keywords");
+      backup.close();
     });
   });
 
-  test("rebuilds an unrecognized authoritative database into its declared current contract", () => {
-    const databasePath = temporaryDatabasePath("unknown.sqlite");
-    const unknown = new Database(databasePath);
-    unknown.exec("CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY) STRICT;");
-    unknown.close();
+  test.each([
+    { contract: AgentConfigDatabaseContract, currentTable: "config_revisions" },
+    { contract: AgentMemoryDatabaseContract, currentTable: "memory_items" },
+    { contract: AgentSessionDatabaseContract, currentTable: "sessions" },
+  ] as const)(
+    "backs up and reinitializes an unrecognized $contract.id authoritative database",
+    ({ contract, currentTable }) => {
+      const databasePath = temporaryDatabasePath(`${contract.id}-unknown.sqlite`);
+      const unknown = new Database(databasePath);
+      unknown.exec("CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY) STRICT;");
+      unknown.close();
 
-    withDatabaseKernel(databasePath, AgentConfigDatabaseContract, (kernel) => {
-      expect(userTable(kernel.connection, "unrelated_records")).toBe(false);
-      expect(userTable(kernel.connection, "config_revisions")).toBe(true);
-      expect(recordedVersions(kernel.connection)).toEqual(declaredVersions(AgentConfigDatabaseContract));
-    });
-  });
+      const recovered = new AgentSqliteDatabaseKernel({ databasePath, contract });
+      expect(userTable(recovered.connection, "unrelated_records")).toBe(false);
+      expect(userTable(recovered.connection, currentTable)).toBe(true);
+      const backup = openRecoveryBackup(recovered);
+      expect(userTable(backup, "unrelated_records")).toBe(true);
+      backup.close();
+      recovered.close();
+    },
+  );
 
-  test("rebuilds a manually changed authoritative schema after validating a replacement", () => {
+  test("backs up and reinitializes a manually changed authoritative schema", () => {
     const databasePath = temporaryDatabasePath("changed-config.sqlite");
     const initial = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
     initial.connection
@@ -122,42 +134,105 @@ describe("SQLite database kernel", () => {
     changed.exec("ALTER TABLE config_revisions ADD COLUMN unexpected_value TEXT;");
     changed.close();
 
-    const rebuilt = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
-    expect(columnNames(rebuilt.connection, "config_revisions")).not.toContain("unexpected_value");
-    expect(rebuilt.connection.prepare("SELECT COUNT(*) AS count FROM config_revisions").get()).toEqual({ count: 0 });
-    rebuilt.close();
+    const recovered = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
+    expect(columnNames(recovered.connection, "config_revisions")).not.toContain("unexpected_value");
+    expect(recovered.connection.prepare("SELECT revision FROM config_revisions").all()).toEqual([]);
+    const backup = openRecoveryBackup(recovered);
+    expect(columnNames(backup, "config_revisions")).toContain("unexpected_value");
+    expect(backup.prepare("SELECT revision FROM config_revisions").all()).toEqual([{ revision: 1 }]);
+    backup.close();
+    recovered.close();
   });
 
-  test("rejects an unrecognized derived database instead of deleting an arbitrary SQLite file", () => {
+  test("backs up and reinitializes malformed SQLite control tables", () => {
+    const databasePath = temporaryDatabasePath("malformed-control.sqlite");
+    const malformed = new Database(databasePath);
+    malformed.exec(`
+      CREATE TABLE ${AgentSqliteContractMetadataTable} (unexpected TEXT);
+      CREATE TABLE ${AgentSqliteMigrationLedgerTable} (unexpected TEXT);
+    `);
+    malformed.close();
+
+    const recovered = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
+    expect(userTable(recovered.connection, "config_revisions")).toBe(true);
+    const backup = openRecoveryBackup(recovered);
+    expect(columnNames(backup, AgentSqliteContractMetadataTable)).toEqual(["unexpected"]);
+    backup.close();
+    recovered.close();
+  });
+
+  test("rebuilds an unrecognized derived database during the startup preflight", () => {
     const databasePath = temporaryDatabasePath("unknown-derived.sqlite");
     const unknown = new Database(databasePath);
     unknown.exec("CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY) STRICT;");
     unknown.close();
 
-    expect(
-      () => new AgentSqliteDatabaseKernel({ databasePath, contract: AgentToolSearchLearningStoreContract }),
-    ).toThrowError(
-      expect.objectContaining<Partial<AgentSqliteMigrationError>>({
-        code: AgentSqliteMigrationErrorCodes.UntrackedDatabase,
-      }),
-    );
+    const rebuilt = new AgentSqliteDatabaseKernel({
+      databasePath,
+      contract: AgentToolSearchLearningStoreContract,
+    });
+    expect(userTable(rebuilt.connection, "unrelated_records")).toBe(false);
+    expect(userTable(rebuilt.connection, "tool_search_episodes")).toBe(true);
+    expect(recordedVersions(rebuilt.connection)).toEqual(declaredVersions(AgentToolSearchLearningStoreContract));
+    const backup = openRecoveryBackup(rebuilt);
+    expect(userTable(backup, "unrelated_records")).toBe(true);
+    backup.close();
+    rebuilt.close();
   });
 
-  test("rejects an explicitly identified different store instead of rebuilding over it", () => {
+  test("rebuilds a legacy tool-search database with the old migration ledger", () => {
+    const databasePath = temporaryDatabasePath("legacy-tool-search.sqlite");
+    const legacy = new Database(databasePath);
+    legacy.exec(AgentToolSearchLearningStoreContract.migrations[0]!.sql);
+    legacy.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO schema_migrations (version, name, checksum, applied_at)
+      VALUES (1, 'tool_search_memory_schema_baseline', 'legacy-checksum', '2026-07-20T13:55:08.186Z');
+    `);
+    legacy.close();
+
+    const rebuilt = new AgentSqliteDatabaseKernel({
+      databasePath,
+      contract: AgentToolSearchLearningStoreContract,
+    });
+    expect(userTable(rebuilt.connection, "schema_migrations")).toBe(false);
+    expect(recordedVersions(rebuilt.connection)).toEqual(declaredVersions(AgentToolSearchLearningStoreContract));
+    const backup = openRecoveryBackup(rebuilt);
+    expect(userTable(backup, "schema_migrations")).toBe(true);
+    backup.close();
+    rebuilt.close();
+  });
+
+  test("backs up an explicitly identified different store before initializing the requested store", () => {
     const databasePath = temporaryDatabasePath("other-store.sqlite");
     const toolStore = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentToolSearchLearningStoreContract });
     toolStore.close();
 
-    expect(() => new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract })).toThrowError(
-      expect.objectContaining<Partial<AgentSqliteMigrationError>>({
-        code: AgentSqliteMigrationErrorCodes.ContractIdentityMismatch,
-      }),
-    );
+    const recovered = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
+    expect(userTable(recovered.connection, "tool_search_episodes")).toBe(false);
+    expect(userTable(recovered.connection, "config_revisions")).toBe(true);
+    const backup = openRecoveryBackup(recovered);
+    expect(userTable(backup, "tool_search_episodes")).toBe(true);
+    backup.close();
+    recovered.close();
+  });
 
-    const unchanged = new Database(databasePath);
-    expect(userTable(unchanged, "tool_search_episodes")).toBe(true);
-    expect(userTable(unchanged, "config_revisions")).toBe(false);
-    unchanged.close();
+  test("backs up a corrupt database file before initializing a healthy authoritative store", () => {
+    const databasePath = temporaryDatabasePath("corrupt-config.sqlite");
+    const original = Buffer.from("not-a-sqlite-database", "utf8");
+    fs.writeFileSync(databasePath, original);
+
+    const recovered = new AgentSqliteDatabaseKernel({ databasePath, contract: AgentConfigDatabaseContract });
+    expect(userTable(recovered.connection, "config_revisions")).toBe(true);
+    const recovery = recovered.recovery;
+    if (!recovery) throw new Error("Expected SQLite startup recovery metadata.");
+    expect(fs.readFileSync(recovery.backupPath)).toEqual(original);
+    recovered.close();
   });
 
   test("preserves a current derived database when its immutable contract has not changed", () => {
@@ -184,6 +259,11 @@ function recordedVersions(database: Database.Database): Array<{ version: number 
 
 function declaredVersions(contract: AgentSqliteStoreContract): Array<{ version: number }> {
   return contract.migrations.map(({ version }) => ({ version }));
+}
+
+function openRecoveryBackup(kernel: AgentSqliteDatabaseKernel): Database.Database {
+  if (!kernel.recovery) throw new Error("Expected SQLite startup recovery metadata.");
+  return new Database(kernel.recovery.backupPath, { readonly: true, fileMustExist: true });
 }
 
 function withDatabaseKernel(

@@ -1,5 +1,5 @@
 import { Eye, EyeOff, Plus, RotateCcw, Server, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { frontendMessage } from "../../../i18n/frontendMessageCatalog";
 import type { SettingsConfigCommands } from "../SettingsContracts";
 import { cn } from "../../../lib/util";
@@ -15,10 +15,40 @@ import {
 } from "../../../shared/ui";
 import { inferModelProviderIcon, ModelProviderIcon } from "../../chat/ModelProviderIcon";
 import { DetailTitle, EmptyDetail, IconAction, inputClassName } from "../../chat/ModelConfigPrimitives";
-import { nextHeaderKey, providerEnabled, providerIdLabel } from "../../chat/modelConfigData";
+import { isRedactedConfigSecret, providerEnabled, providerIdLabel } from "../../chat/modelConfigData";
 import type { ProviderEndpointDraft } from "../../chat/modelConfigTypes";
 import { ProviderFormError } from "./ProviderConnectionFeedback";
 import { isProtectedProvider } from "./ProviderConnectionIdentity";
+
+interface HeaderRow {
+  id: number;
+  name: string;
+  value: string;
+}
+
+let headerRowSeed = 0;
+
+function toHeaderRows(headers: Record<string, string>): HeaderRow[] {
+  return Object.entries(headers).map(([name, value]) => ({ id: ++headerRowSeed, name, value }));
+}
+
+function rowsToHeaders(rows: readonly HeaderRow[]): Record<string, string> {
+  return Object.fromEntries(rows.filter((row) => row.name.trim()).map((row) => [row.name, row.value]));
+}
+
+// Case-insensitive: HTTP header names are case-insensitive, so "Auth"/"auth"
+// would collide at the transport layer even though the object keeps both.
+function readDuplicateHeaderNames(rows: readonly HeaderRow[]): ReadonlySet<string> {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const row of rows) {
+    const name = row.name.trim().toLowerCase();
+    if (!name) continue;
+    if (seen.has(name)) duplicates.add(name);
+    seen.add(name);
+  }
+  return duplicates;
+}
 
 export function ProviderConnectionEditor({
   acceptedProvider,
@@ -47,8 +77,13 @@ export function ProviderConnectionEditor({
 }): JSX.Element {
   const [showKey, setShowKey] = useState(false);
   const [requestConfigOpen, setRequestConfigOpen] = useState(false);
-  const [requestHeadersDraft, setRequestHeadersDraft] = useState<Record<string, string>>({});
+  const [requestHeadersDraft, setRequestHeadersDraft] = useState<HeaderRow[]>([]);
   const provider = draftProvider;
+  const providerId = provider?.Id;
+
+  useEffect(() => {
+    setShowKey(false);
+  }, [providerId]);
 
   if (!provider || !acceptedProvider || providerIndex < 0) {
     return (
@@ -62,9 +97,11 @@ export function ProviderConnectionEditor({
 
   const enabled = providerEnabled(provider);
   const protectedProvider = isProtectedProvider(provider.Id);
+  const storedApiKey = isRedactedConfigSecret(provider.ApiKey);
   const pending = operation?.status === "pending";
   const operationError = operation?.status === "error" ? operation.message : null;
   const errorMessage = localError ?? operationError;
+  const duplicateHeaderNames = readDuplicateHeaderNames(requestHeadersDraft);
 
   return (
     <div className="bg-paper-50">
@@ -73,9 +110,7 @@ export function ProviderConnectionEditor({
           icon={<ModelProviderIcon icon={provider.Icon || inferModelProviderIcon(provider.Id)} size={22} />}
           title={providerIdLabel(provider)}
           subtitle={readProviderConnectionSubtitle({
-            dirty,
             enabled,
-            operation,
             protectedProvider,
             providerModelCount,
           })}
@@ -98,7 +133,7 @@ export function ProviderConnectionEditor({
                 label={frontendMessage("settings.provider.apiConfig")}
                 disabled={disabled}
                 onClick={() => {
-                  setRequestHeadersDraft({ ...(provider.Headers ?? {}) });
+                  setRequestHeadersDraft(toHeaderRows(provider.Headers ?? {}));
                   setRequestConfigOpen(true);
                 }}
               >
@@ -122,10 +157,10 @@ export function ProviderConnectionEditor({
           <ConnectionField label={frontendMessage("settings.provider.apiKey")}>
             <div className="flex h-9 min-w-0 overflow-hidden rounded-md border border-ink-200 bg-paper-50 transition focus-within:border-accent-border focus-within:ring-2 focus-within:ring-accent-focus">
               <input
-                type={showKey ? "text" : "password"}
-                value={provider.ApiKey ?? ""}
+                type={showKey && !storedApiKey ? "text" : "password"}
+                value={storedApiKey ? "" : (provider.ApiKey ?? "")}
                 disabled={disabled}
-                placeholder="sk-..."
+                placeholder={storedApiKey ? frontendMessage("settings.provider.apiKeyStored") : "sk-..."}
                 spellCheck={false}
                 className={cn(inputClassName, "h-full font-mono")}
                 onChange={(event) => {
@@ -135,7 +170,8 @@ export function ProviderConnectionEditor({
               />
               <button
                 type="button"
-                className="grid h-9 w-9 shrink-0 place-items-center border-l border-ink-200 text-ink-450 transition hover:text-ink-800"
+                disabled={storedApiKey}
+                className="grid h-9 w-9 shrink-0 place-items-center border-l border-ink-200 text-ink-450 transition hover:text-ink-800 disabled:pointer-events-none disabled:opacity-40"
                 onClick={() => setShowKey((current) => !current)}
                 aria-label={frontendMessage(showKey ? "config.provider.hideApiKey" : "config.provider.showApiKey")}
               >
@@ -165,7 +201,13 @@ export function ProviderConnectionEditor({
       <Dialog
         open={requestConfigOpen}
         onOpenChange={(open) => {
-          if (!open) onConfirm({ Headers: requestHeadersDraft });
+          // Save-on-close, but never commit a duplicate-name collapse: rowsToHeaders
+          // is last-wins, so ESC/X with duplicates would silently drop a header.
+          // Match the disabled Confirm button — discard the invalid in-dialog edits
+          // (reopening reseeds from the saved headers) instead of corrupting them.
+          if (!open && duplicateHeaderNames.size === 0) {
+            onConfirm({ Headers: rowsToHeaders(requestHeadersDraft) });
+          }
           setRequestConfigOpen(open);
         }}
       >
@@ -177,29 +219,30 @@ export function ProviderConnectionEditor({
         >
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-[12px] font-semibold text-ink-750">
+              <span className="text-[12px] font-semibold text-ink-800">
                 {frontendMessage("settings.provider.customHeaders")}
               </span>
-              <span className="font-mono text-[10.5px] text-ink-450">{"{}"}</span>
+              <span className="font-mono text-[10.5px] text-ink-500">{"{}"}</span>
             </div>
             <HeadersEditor
-              headers={requestHeadersDraft}
+              rows={requestHeadersDraft}
               disabled={disabled}
-              onChange={(headers, immediate) => {
-                setRequestHeadersDraft(headers);
-                onChange({ Headers: headers });
-                if (immediate) onConfirm({ Headers: headers });
-              }}
-              onCommit={() => onConfirm({ Headers: requestHeadersDraft })}
+              duplicateNames={duplicateHeaderNames}
+              onChange={setRequestHeadersDraft}
             />
+            {duplicateHeaderNames.size > 0 ? (
+              <div className="mt-3">
+                <ProviderFormError message={frontendMessage("settings.provider.duplicateHeaderName")} />
+              </div>
+            ) : null}
             <FormHint className="mt-3">{frontendMessage("settings.provider.customHeadersHint")}</FormHint>
           </div>
           <DialogActions className="mt-auto">
             <DialogActionButton
               variant="primary"
-              disabled={disabled}
+              disabled={disabled || duplicateHeaderNames.size > 0}
               onClick={() => {
-                onConfirm({ Headers: requestHeadersDraft });
+                onConfirm({ Headers: rowsToHeaders(requestHeadersDraft) });
                 setRequestConfigOpen(false);
               }}
             >
@@ -223,47 +266,44 @@ function ConnectionField({ label, children }: { label: string; children: React.R
 
 function HeadersEditor({
   disabled,
-  headers,
+  rows,
+  duplicateNames,
   onChange,
-  onCommit,
 }: {
   disabled: boolean;
-  headers: Record<string, string>;
-  onChange: (headers: Record<string, string>, immediate?: boolean) => void;
-  onCommit: () => void;
+  rows: readonly HeaderRow[];
+  duplicateNames: ReadonlySet<string>;
+  onChange: (rows: HeaderRow[]) => void;
 }): JSX.Element {
-  const entries = Object.entries(headers);
+  const updateRow = (id: number, patch: Partial<Pick<HeaderRow, "name" | "value">>): void => {
+    onChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  };
   return (
     <div className="grid gap-2">
-      {entries.map(([key, value], index) => (
-        <div key={`${key}:${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+      {rows.map((row) => (
+        <div key={row.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <Input
-            value={key}
+            value={row.name}
             placeholder={frontendMessage("settings.provider.headerName")}
             disabled={disabled}
-            onChange={(event) => {
-              const next = [...entries];
-              next[index] = [event.currentTarget.value, value];
-              onChange(Object.fromEntries(next.filter(([entryKey]) => entryKey.trim())));
-            }}
-            onBlur={onCommit}
+            aria-invalid={duplicateNames.has(row.name.trim().toLowerCase())}
+            onChange={(event) => updateRow(row.id, { name: event.currentTarget.value })}
           />
           <Input
-            value={value}
-            placeholder={frontendMessage("settings.provider.headerValue")}
+            value={isRedactedConfigSecret(row.value) ? "" : row.value}
+            placeholder={frontendMessage(
+              isRedactedConfigSecret(row.value)
+                ? "settings.provider.headerValueStored"
+                : "settings.provider.headerValue",
+            )}
             disabled={disabled}
-            onChange={(event) => {
-              const next = [...entries];
-              next[index] = [key, event.currentTarget.value];
-              onChange(Object.fromEntries(next));
-            }}
-            onBlur={onCommit}
+            onChange={(event) => updateRow(row.id, { value: event.currentTarget.value })}
           />
           <IconAction
             label={frontendMessage("settings.provider.deleteHeader")}
             danger
             disabled={disabled}
-            onClick={() => onChange(Object.fromEntries(entries.filter((_, entryIndex) => entryIndex !== index)), true)}
+            onClick={() => onChange(rows.filter((entry) => entry.id !== row.id))}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </IconAction>
@@ -273,7 +313,7 @@ function HeadersEditor({
         variant="outline"
         disabled={disabled}
         className="w-fit border-dashed"
-        onClick={() => onChange({ ...headers, [nextHeaderKey(headers)]: "" }, true)}
+        onClick={() => onChange([...rows, { id: ++headerRowSeed, name: "", value: "" }])}
       >
         <Plus className="h-3.5 w-3.5" />
         {frontendMessage("settings.provider.addHeader")}
@@ -283,28 +323,17 @@ function HeadersEditor({
 }
 
 function readProviderConnectionSubtitle({
-  dirty,
   enabled,
-  operation,
   protectedProvider,
   providerModelCount,
 }: {
-  dirty: boolean;
   enabled: boolean;
-  operation?: SettingsConfigCommands["providerEndpointOperations"][string];
   protectedProvider: boolean;
   providerModelCount: number;
 }): string {
-  if (operation?.status === "pending") {
-    return frontendMessage("settings.provider.savingConnection");
-  }
-  if (operation?.status === "error") {
-    return frontendMessage("settings.provider.lastSaveFailed");
-  }
   const identity = frontendMessage(
     protectedProvider ? "settings.provider.builtIn" : "settings.provider.customIdentity",
   );
   const state = frontendMessage(enabled ? "settings.state.enabled" : "settings.state.disabled");
-  const draft = frontendMessage(dirty ? "settings.provider.unsavedChanges" : "settings.provider.fieldsSynced");
-  return frontendMessage("settings.provider.connectionStatus", { identity, state, count: providerModelCount, draft });
+  return frontendMessage("settings.provider.connectionStatus", { identity, state, count: providerModelCount });
 }

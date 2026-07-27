@@ -1,10 +1,11 @@
 import { cva } from "class-variance-authority";
-import { AlertTriangle, BookUser, Check, FileUp, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, BookUser, Check, FileUp, Plus, RefreshCw, Search } from "lucide-react";
 import type { PresetItem } from "../../api/eventTypes";
 import { frontendMessage } from "../../i18n/frontendMessageCatalog";
-import { cn } from "../../lib/util";
-import { Button, IconButton, ScrollArea } from "../../shared/ui";
-import { PresetFormatOptions, formatPresetTime, readPresetDisplayName } from "./presetPanelUtils";
+import { cn, formatShortTime } from "../../lib/util";
+import { Button, IconButton, ScrollArea, Spinner, StateView } from "../../shared/ui";
+import { useStore } from "../../store/sessionStore";
+import { PresetFormatOptions, readPresetDisplayName } from "./presetPanelUtils";
 
 const presetListItemClass = cva(
   "flex min-w-[220px] items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition lg:w-full lg:min-w-0",
@@ -79,7 +80,7 @@ export function PresetSidebar({
             onClick={onImport}
             className="h-8 justify-start bg-paper-50 px-2.5"
           >
-            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}
+            {importing ? <Spinner size="sm" /> : <FileUp className="h-3.5 w-3.5" />}
             {frontendMessage("preset.ui.import")}
           </Button>
           <IconButton
@@ -167,7 +168,7 @@ function PresetListItem({
           {displayName || frontendMessage("preset.ui.unnamed")}
         </span>
         <span className="mt-0.5 block truncate text-[10.5px] tabular-nums text-ink-400">
-          {formatLabel} · {formatPresetTime(preset.updatedAt)}
+          {formatLabel} · {formatShortTime(preset.updatedAt)}
         </span>
       </span>
       {preset.active ? <Check className="h-3.5 w-3.5 shrink-0 text-accent-content" /> : null}
@@ -177,9 +178,15 @@ function PresetListItem({
 }
 
 function EmptyPresetList({ filtered }: { filtered: boolean }): JSX.Element {
+  const synced = useStore((s) => s.catalogSynced.presets);
+  if (!filtered && !synced) {
+    return <StateView status="loading" className="min-h-20 min-w-[220px] px-3 py-3 lg:min-w-0" />;
+  }
   return (
-    <div className="flex min-h-20 min-w-[220px] items-center justify-center rounded-lg border border-dashed border-ink-200 bg-paper-50/60 px-3 text-[12px] text-ink-400 lg:min-w-0">
-      {frontendMessage(filtered ? "preset.ui.noMatches" : "preset.ui.empty")}
-    </div>
+    <StateView
+      status="empty"
+      className="min-h-20 min-w-[220px] px-3 py-3 lg:min-w-0"
+      description={frontendMessage(filtered ? "preset.ui.noMatches" : "preset.ui.empty")}
+    />
   );
 }

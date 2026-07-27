@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PencilLine, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useResponsiveMode } from "../../shared/responsive";
@@ -23,6 +23,7 @@ interface Props {
   onLogout?: () => Promise<void>;
   socketStatus: string;
   sandboxStatus?: SandboxStatusSnapshotData | null;
+  onSettingsIntent?: () => void;
   onOpenSettings: (section?: SettingsSectionId, returnFocus?: HTMLElement | null) => void;
   presentation?: "auto" | "panel";
   onSessionSelected?: () => void;
@@ -44,6 +45,7 @@ export function SessionList({
   onLogout,
   socketStatus,
   sandboxStatus,
+  onSettingsIntent,
   onOpenSettings,
   presentation = "auto",
   onSessionSelected,
@@ -53,6 +55,7 @@ export function SessionList({
   const order = useStore((s) => s.sessionOrder);
   const active = useStore((s) => s.activeSessionId);
   const historyLoadingIds = useStore((s) => s.historyLoadingIds);
+  const sessionCatalogSynced = useStore((s) => s.catalogSynced.sessions);
   const select = useStore((s) => s.selectSession);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
@@ -61,6 +64,7 @@ export function SessionList({
 
   const [confirmation, setConfirmation] = useState<ConfirmationIntent | null>(null);
   const [renaming, setRenaming] = useState<RenameIntent | null>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -76,7 +80,8 @@ export function SessionList({
 
   const activeSession = active ? sessions[active] : undefined;
 
-  const openRename = (session: SessionRecord): void => {
+  const openRename = (session: SessionRecord, returnFocus: HTMLElement | null = null): void => {
+    dialogReturnFocusRef.current = returnFocus?.isConnected ? returnFocus : null;
     setRenaming({ sessionId: session.sessionId, title: session.title });
     setRenameDraft(session.title);
   };
@@ -93,7 +98,8 @@ export function SessionList({
     toast.success(frontendMessage("session.renameSucceeded"));
   };
 
-  const confirmDeleteSession = (session: SessionRecord): void => {
+  const confirmDeleteSession = (session: SessionRecord, returnFocus: HTMLElement | null = null): void => {
+    dialogReturnFocusRef.current = returnFocus?.isConnected ? returnFocus : null;
     setConfirmation({
       title: frontendMessage("session.deleteCurrentTitle"),
       description: frontendMessage("session.deleteCurrentDescription", { title: session.title }),
@@ -190,6 +196,7 @@ export function SessionList({
         <SessionPanelBody
           sessions={filteredSessions}
           totalSessionCount={sessionList.length}
+          catalogSynced={sessionCatalogSynced}
           query={searchQuery}
           onQueryChange={setSearchQuery}
           activeSessionId={active}
@@ -210,6 +217,7 @@ export function SessionList({
         profile={userProfile}
         socketStatus={socketStatus}
         sandboxStatus={sandboxStatus}
+        onSettingsIntent={onSettingsIntent}
         onOpenSettings={onOpenSettings}
         onUpdateProfile={onUpdateUserProfile}
         onLogout={onLogout}
@@ -224,6 +232,7 @@ export function SessionList({
         open={!!renaming}
         value={renameDraft}
         title={renaming?.title ?? ""}
+        returnFocus={dialogReturnFocusRef.current}
         onValueChange={setRenameDraft}
         onOpenChange={(open) => {
           if (!open) setRenaming(null);
@@ -232,6 +241,7 @@ export function SessionList({
       />
       <ConfirmationDialog
         intent={confirmation}
+        returnFocus={dialogReturnFocusRef.current}
         onOpenChange={(open) => {
           if (!open) setConfirmation(null);
         }}

@@ -1,8 +1,37 @@
 import { twMerge } from "tailwind-merge";
 import { clsx, type ClassValue } from "clsx";
+import { getFrontendLocale } from "../i18n/frontendLocaleStore";
+
+const integerFormatters = new Map<string, Intl.NumberFormat>();
+const shortTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function getIntegerFormatter(locale: string): Intl.NumberFormat {
+  const existing = integerFormatters.get(locale);
+  if (existing) return existing;
+  const formatter = new Intl.NumberFormat(locale);
+  integerFormatters.set(locale, formatter);
+  return formatter;
+}
+
+function getShortTimeFormatter(locale: string): Intl.DateTimeFormat {
+  const existing = shortTimeFormatters.get(locale);
+  if (existing) return existing;
+  const formatter = new Intl.DateTimeFormat(locale, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  shortTimeFormatters.set(locale, formatter);
+  return formatter;
+}
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
+}
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function formatTime(iso: string): string {
@@ -42,6 +71,26 @@ export function hasMeasuredDuration(startIso?: string, endIso?: string): boolean
   } catch {
     return false;
   }
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)}KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb < 10 ? 1 : 0)}MB`;
+}
+
+export function formatInteger(value: number): string {
+  return getIntegerFormatter(getFrontendLocale()).format(value);
+}
+
+export function formatShortTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return getShortTimeFormatter(getFrontendLocale()).format(date);
 }
 
 export function generateId(): string {

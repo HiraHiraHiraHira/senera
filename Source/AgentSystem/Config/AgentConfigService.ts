@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
 import { AgentConfigLoader } from "../Config/AgentConfigLoader.js";
-import { stringifyAgentCanonicalJson } from "../Core/AgentCanonicalJson.js";
 import { resolveConfigStoreConfig } from "../AgentDefaults.js";
 import { agentErrorMessage } from "../I18n/AgentMessageCatalog.js";
 import { AgentSystemConfigSchema } from "../Schemas/AgentSystemConfigSchema.js";
@@ -38,7 +36,11 @@ import {
   persistMigratedAgentConfigJson,
   writeAgentConfigJsonMirror,
 } from "./AgentConfigServicePaths.js";
-import { migrateAgentConfigPayload } from "./AgentConfigMigration.js";
+import type { AgentUpgradeSession } from "../Upgrade/AgentUpgradeSession.js";
+import { migrateAgentConfigPayload, type AgentConfigMigrationResult } from "./AgentConfigMigration.js";
+import { errorMessage } from "../Core/AgentErrors.js";
+import { sha256HexOfCanonicalJson } from "../Core/AgentHash.js";
+import { AgentConfigSecretCodec } from "./AgentConfigSecretProtection.js";
 
 export type AgentConfigSnapshotSource = "sqlite" | "json";
 
@@ -104,14 +106,18 @@ export class AgentConfigService {
   private snapshotValue: AgentConfigSnapshot;
   private repository?: AgentConfigSqliteRepository;
   private repositoryPath?: string;
+  private readonly secretCodec: AgentConfigSecretCodec;
   private readonly jsonCommandReceipts = new Map<string, { operationKind: string; payloadHash: string }>();
 
   constructor(
     private readonly options: {
       workspaceRoot: string;
       source: AgentConfigSourceOptions;
+      upgradeSession?: AgentUpgradeSession;
+      secretCodec?: AgentConfigSecretCodec;
     },
   ) {
+    this.secretCodec = options.secretCodec ?? new AgentConfigSecretCodec({ workspaceRoot: options.workspaceRoot });
     try {
       this.snapshotValue = this.initialize(1);
     } catch (error) {
@@ -225,16 +231,31 @@ export class AgentConfigService {
     source: Extract<AgentConfigSourceOptions, { kind: "json" }>,
     version: number,
   ): AgentConfigSnapshot {
-    const loadedJson = AgentConfigLoader.loadWithMetadata(source.configPath);
+    const upgradeParticipantId = "agent-config-json";
+    const loadedJson = AgentConfigLoader.loadWithMetadata(source.configPath, {
+      secretCodec: this.secretCodec,
+      onMigrationDetected: ({ sourceVersion, targetVersion }) => {
+        this.options.upgradeSession?.backupFileMigration({
+          id: upgradeParticipantId,
+          sourcePath: source.configPath,
+          sourceVersion,
+          targetVersion,
+        });
+      },
+    });
     const jsonConfig = loadedJson.config;
+    const persistenceRequired = Boolean(loadedJson.migration || loadedJson.secretsNeedPersistence);
+    if (persistenceRequired) {
+      this.assertSecretPersistenceRoundTrip(jsonConfig);
+      this.options.upgradeSession?.markFileMigrationDryRunPassed(upgradeParticipantId);
+    }
     const migrationDiagnostics = loadedJson.migration
-      ? [
-          migrationDiagnostic(
-            loadedJson.migration,
-            persistMigratedAgentConfigJson(jsonConfig, source.configPath, loadedJson.migration.sourceVersion),
-          ),
-        ]
+      ? [this.persistJsonMigration(source, loadedJson.config, loadedJson.migration)]
       : [];
+    if (loadedJson.secretsNeedPersistence && !loadedJson.migration) {
+      writeAgentConfigJsonMirror(jsonConfig, source.configPath, this.secretCodec);
+      this.options.upgradeSession?.markFileMigrationApplied(upgradeParticipantId);
+    }
     const store = resolveConfigStoreConfig(jsonConfig);
     if (!store.Enabled) {
       return {
@@ -264,6 +285,16 @@ export class AgentConfigService {
       version,
       diagnostics: [...migrationDiagnostics, ...diagnosticsForRepair(latest.repaired)],
     });
+  }
+
+  private persistJsonMigration(
+    source: Extract<AgentConfigSourceOptions, { kind: "json" }>,
+    config: AgentSystemConfig,
+    migration: AgentConfigMigrationResult,
+  ): AgentConfigDiagnostic {
+    const result = persistMigratedAgentConfigJson(config, source.configPath, migration.sourceVersion, this.secretCodec);
+    this.options.upgradeSession?.markFileMigrationApplied("agent-config-json");
+    return migrationDiagnostic(migration, result);
   }
 
   private initializeSqlitePrimary(
@@ -302,7 +333,10 @@ export class AgentConfigService {
       return this.repository;
     }
 
-    const repository = new AgentConfigSqliteRepository(databasePath);
+    const repository = new AgentConfigSqliteRepository(databasePath, {
+      upgradeSession: this.options.upgradeSession,
+      secretCodec: this.secretCodec,
+    });
     this.closeRepository();
     this.repository = repository;
     this.repositoryPath = databasePath;
@@ -344,7 +378,7 @@ export class AgentConfigService {
         return this.snapshotValue;
       }
       const config = this.validateConfig(transform(this.snapshotValue));
-      writeAgentConfigJsonMirror(config, this.options.source.configPath);
+      writeAgentConfigJsonMirror(config, this.options.source.configPath, this.secretCodec);
       this.snapshotValue = {
         path: this.options.source.configPath,
         version: this.snapshotValue.version + 1,
@@ -400,7 +434,7 @@ export class AgentConfigService {
   private writeCommittedJsonMirror(config: AgentSystemConfig, enabled: boolean): void {
     if (!enabled || this.options.source.kind !== "json") return;
     try {
-      writeAgentConfigJsonMirror(config, this.options.source.configPath);
+      writeAgentConfigJsonMirror(config, this.options.source.configPath, this.secretCodec);
     } catch (error) {
       this.snapshotValue = {
         ...this.snapshotValue,
@@ -410,7 +444,7 @@ export class AgentConfigService {
             severity: "warning",
             message: agentErrorMessage("config.mirrorWriteFailed", {
               path: this.options.source.configPath,
-              error: error instanceof Error ? error.message : String(error),
+              error: errorMessage(error),
             }),
           },
         ],
@@ -484,6 +518,14 @@ export class AgentConfigService {
     return AgentSystemConfigSchema.parse(migrated?.config ?? config);
   }
 
+  private assertSecretPersistenceRoundTrip(config: AgentSystemConfig): void {
+    const protectedConfig = this.secretCodec.protectConfig(config);
+    const revealedConfig = AgentSystemConfigSchema.parse(this.secretCodec.revealConfig(protectedConfig).value);
+    if (sha256HexOfCanonicalJson(revealedConfig) !== sha256HexOfCanonicalJson(config)) {
+      throw new Error("Configuration secret protection dry-run did not preserve the configuration payload.");
+    }
+  }
+
   private resolveDatabasePath(config: AgentSystemConfig): string {
     return resolveConfigStoreDatabasePath(this.options.workspaceRoot, config);
   }
@@ -502,7 +544,7 @@ export function loadConfigFile(filePath: string): AgentSystemConfig {
 }
 
 function createConfigCommandPayloadHash(operationKind: string, payload: unknown): string {
-  return createHash("sha256").update(stringifyAgentCanonicalJson({ operationKind, payload }), "utf8").digest("hex");
+  return sha256HexOfCanonicalJson({ operationKind, payload });
 }
 
 function diagnosticsForRepair(repair: AgentConfigRepairResult): AgentConfigDiagnostic[] {

@@ -338,15 +338,14 @@ function resolvePiProxyModelProvider(
   }
 
   const catalog = resolveModelProviderCatalog(config);
-  const provider = catalog.providers.find((item) => item.Id === modelProviderId);
-  if (!provider) {
+  try {
+    return catalog.resolve(modelProviderId);
+  } catch {
     throw new AgentPiProxyRequestError(
       "invalid_model_provider",
       `Pi proxy model provider is not configured: ${modelProviderId}`,
     );
   }
-
-  return provider;
 }
 
 function routeKey(request: http.IncomingMessage): string {
@@ -395,11 +394,6 @@ function toPublicPiProxyError(error: unknown): AgentPiProxyRequestError {
   return new AgentPiProxyRequestError("senera_pi_proxy_error", "Pi proxy request failed.", 500);
 }
 
-export function buildPiProxyBaseUrl(config: AgentSystemConfig): string {
-  const server = resolveServerConfig(config);
-  return `http://${clientHostForBindHost(server.Host)}:${server.Port}/v1`;
-}
-
 class AgentPiProxyRequestLifetime {
   private readonly controller = new AbortController();
   private readonly abort = (): void => this.controller.abort(new Error("Pi proxy client disconnected."));
@@ -438,13 +432,4 @@ function projectCompilationTrace(compilation: AgentPiAssistantCompilation): Reco
       argumentKeys: Object.keys(call.arguments),
     })),
   };
-}
-
-function clientHostForBindHost(host: string): string {
-  const bindAnyHostByName = new Map([
-    ["0.0.0.0", "127.0.0.1"],
-    ["::", "[::1]"],
-    ["[::]", "[::1]"],
-  ]);
-  return bindAnyHostByName.get(host) ?? host;
 }

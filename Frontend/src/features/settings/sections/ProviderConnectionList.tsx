@@ -2,7 +2,7 @@ import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { frontendMessage } from "../../../i18n/frontendMessageCatalog";
 import type { SettingsConfigCommands } from "../SettingsContracts";
-import { cn } from "../../../lib/util";
+import { cn, formatShortTime } from "../../../lib/util";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +13,7 @@ import {
 } from "../../../shared/ui";
 import { inferModelProviderIcon, ModelProviderIcon } from "../../chat/ModelProviderIcon";
 import { EmptyList, ProviderStatusIcon, SearchInput } from "../../chat/ModelConfigPrimitives";
-import { formatShortTime, providerEnabled, providerIdLabel, sortProviderRows } from "../../chat/modelConfigData";
+import { providerEnabled, providerIdLabel, sortProviderRows } from "../../chat/modelConfigData";
 import type { ProviderEndpointDraft } from "../../chat/modelConfigTypes";
 import { isProtectedProvider } from "./ProviderConnectionIdentity";
 
@@ -22,7 +22,6 @@ export function ProviderConnectionList({
   catalogs,
   errors,
   loadingProviderIds,
-  operations,
   selectedProviderId,
   disabled,
   onRequestAdd,
@@ -34,7 +33,6 @@ export function ProviderConnectionList({
   catalogs: SettingsConfigCommands["providerModelCatalogs"];
   errors: SettingsConfigCommands["providerModelErrors"];
   loadingProviderIds: SettingsConfigCommands["providerModelLoadingIds"];
-  operations: SettingsConfigCommands["providerEndpointOperations"];
   selectedProviderId: string | null;
   disabled: boolean;
   onRequestAdd: () => void;
@@ -60,25 +58,17 @@ export function ProviderConnectionList({
           const catalog = provider.Id ? catalogs[provider.Id] : undefined;
           const error = provider.Id ? errors[provider.Id] : undefined;
           const loading = provider.Id ? loadingProviderIds[provider.Id] : false;
-          const operation = provider.Id ? operations[provider.Id] : undefined;
-          const operationPending = operation?.status === "pending";
-          const operationError =
-            operation?.status === "error" ? { providerId: provider.Id, message: operation.message ?? "" } : undefined;
           const enabled = providerEnabled(provider);
           const modelCount = catalog?.models.length ?? 0;
           const protectedProvider = isProtectedProvider(provider.Id);
           const statusText = loading
             ? frontendMessage("settings.modelManagement.fetching")
-            : operationPending
-              ? frontendMessage("settings.provider.savingConnection")
-              : operationError
-                ? frontendMessage("settings.provider.lastSaveFailed")
-                : catalog
-                  ? frontendMessage("settings.provider.catalogSummary", {
-                      models: frontendMessage("settings.provider.modelsCount", { count: modelCount }),
-                      time: formatShortTime(catalog.fetchedAt),
-                    })
-                  : null;
+            : catalog
+              ? frontendMessage("settings.provider.catalogSummary", {
+                  models: frontendMessage("settings.provider.modelsCount", { count: modelCount }),
+                  time: formatShortTime(catalog.fetchedAt),
+                })
+              : null;
           return (
             <div
               key={provider.Id}
@@ -109,12 +99,8 @@ export function ProviderConnectionList({
                     {providerIdLabel(provider)}
                   </span>
                   {statusText ? (
-                    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-ink-450">
-                      <ProviderStatusIcon
-                        loading={loading || operationPending}
-                        catalog={catalog}
-                        error={error || operationError}
-                      />
+                    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-ink-500">
+                      <ProviderStatusIcon loading={loading} catalog={catalog} error={error} />
                       <span className="truncate">{statusText}</span>
                     </span>
                   ) : null}

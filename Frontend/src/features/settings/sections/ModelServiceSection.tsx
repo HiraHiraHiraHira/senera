@@ -2,12 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { frontendMessage } from "../../../i18n/frontendMessageCatalog";
 import type { SettingsSystemConfigHandle } from "../SettingsContracts";
-import { SettingsWorkspaceState } from "../SettingsWorkspaceSurface";
+
 import { classifySettingsContentLayout, useObservedLayout } from "../../../shared/responsive";
 import { cn } from "../../../lib/util";
-import { Dialog, DialogActionButton, DialogActions, DialogContent, ScrollArea } from "../../../shared/ui";
-import { findItemField, findTopField, readFieldOptions, toProviderEndpointInput } from "../../chat/modelConfigData";
+import { StateView } from "../../../shared/ui";
+import {
+  findItemField,
+  findTopField,
+  providerIdLabel,
+  readFieldOptions,
+  toProviderEndpointInput,
+} from "../../chat/modelConfigData";
 import type { ModelProviderDraft, ProviderEndpointDraft } from "../../chat/modelConfigTypes";
+import { DiscardDraftDialog } from "../DiscardDraftDialog";
 import { AddProviderDialog, RenameProviderDialog } from "./ProviderConnectionDialogs";
 import { ProviderConnectionEditor } from "./ProviderConnectionEditor";
 import { ProviderConnectionList } from "./ProviderConnectionList";
@@ -115,9 +122,21 @@ export function ModelServiceSection({
   }, [actions.dirty, onDirtyChange]);
 
   if (!systemConfig)
-    return <SettingsWorkspaceState>{frontendMessage("settings.state.loadingMain")}</SettingsWorkspaceState>;
+    return (
+      <StateView
+        status="loading"
+        className="min-h-[360px] bg-paper-50"
+        description={frontendMessage("settings.state.loadingMain")}
+      />
+    );
   if (!snapshot || !modelSection || !state)
-    return <SettingsWorkspaceState>{frontendMessage("settings.state.loadingModelService")}</SettingsWorkspaceState>;
+    return (
+      <StateView
+        status="loading"
+        className="min-h-[360px] bg-paper-50"
+        description={frontendMessage("settings.state.loadingModelService")}
+      />
+    );
 
   const selectedProvider =
     state.providers.find((provider) => provider.Id === (selectedProviderId ?? state.providers[0]?.Id)) ?? null;
@@ -153,7 +172,6 @@ export function ModelServiceSection({
         catalogs={systemConfig.providerModelCatalogs}
         errors={systemConfig.providerModelErrors}
         loadingProviderIds={systemConfig.providerModelLoadingIds}
-        operations={systemConfig.providerEndpointOperations}
         selectedProviderId={actions.acceptedProvider?.Id ?? null}
         disabled={false}
         onRequestAdd={() => actions.setShowAddDialog(true)}
@@ -171,8 +189,8 @@ export function ModelServiceSection({
     </section>
   );
   const detail = (
-    <ScrollArea className="h-full min-h-0 bg-paper-50" viewportClassName="h-full">
-      <section className="min-w-0 bg-paper-50">
+    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-paper-50">
+      <div className="shrink-0">
         <ProviderConnectionEditor
           acceptedProvider={actions.acceptedProvider}
           dirty={actions.dirty}
@@ -186,9 +204,9 @@ export function ModelServiceSection({
           onConfirm={actions.confirmDraft}
           onDelete={actions.acceptedProvider ? () => setProviderPendingRemoval(actions.acceptedProvider!) : undefined}
         />
-        <div className="min-h-[360px] border-t border-ink-200/70">{modelSurface}</div>
-      </section>
-    </ScrollArea>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden border-t border-ink-200/70">{modelSurface}</div>
+    </section>
   );
 
   const content =
@@ -228,12 +246,15 @@ export function ModelServiceSection({
       <AddProviderDialog
         open={actions.showAddDialog}
         providers={state.providers}
-        onOpenChange={actions.setShowAddDialog}
+        pending={actions.addPending}
+        error={actions.addError}
+        onOpenChange={(open) => (open ? actions.setShowAddDialog(true) : actions.dismissAddDialog())}
         onAdd={actions.addProvider}
       />
       <RenameProviderDialog
         provider={actions.renameTarget}
         providers={state.providers}
+        error={actions.renameError}
         onOpenChange={(open) => !open && actions.setRenameTarget(null)}
         onRename={actions.renameProvider}
       />
@@ -252,31 +273,25 @@ export function ModelServiceSection({
           return provider ? actions.deleteProvider(provider, input) : false;
         }}
       />
-      <Dialog
+      <DiscardDraftDialog
         open={pendingProviderSelection !== null}
+        title={frontendMessage("settings.discard.connectionTitle")}
+        description={frontendMessage("settings.discard.connectionDescription", {
+          current: actions.acceptedProvider ? providerIdLabel(actions.acceptedProvider) : "",
+          next: pendingProviderSelection ? providerIdLabel(pendingProviderSelection) : "",
+        })}
+        consequence={frontendMessage("settings.discard.connectionConsequence")}
+        continueLabel={frontendMessage("settings.discard.continue")}
+        confirmLabel={frontendMessage("settings.discard.connectionConfirm")}
         onOpenChange={(open) => !open && setPendingProviderSelection(null)}
-      >
-        <DialogContent
-          title={frontendMessage("settings.discard.connectionTitle")}
-          description={frontendMessage("settings.discard.connectionDescription")}
-        >
-          <DialogActions>
-            <DialogActionButton close>{frontendMessage("settings.discard.continue")}</DialogActionButton>
-            <DialogActionButton
-              variant="danger"
-              onClick={() => {
-                const provider = pendingProviderSelection;
-                setPendingProviderSelection(null);
-                if (!provider) return;
-                actions.discardAndSelectProvider(provider);
-                if (layout === "compact") setMobileDetailOpen(true);
-              }}
-            >
-              {frontendMessage("settings.discard.confirm")}
-            </DialogActionButton>
-          </DialogActions>
-        </DialogContent>
-      </Dialog>
+        onDiscard={() => {
+          const provider = pendingProviderSelection;
+          setPendingProviderSelection(null);
+          if (!provider) return;
+          actions.discardAndSelectProvider(provider);
+          if (layout === "compact") setMobileDetailOpen(true);
+        }}
+      />
     </div>
   );
 }

@@ -1,18 +1,22 @@
-import React, { useEffect, useRef } from "react";
+import React from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { EventKinds } from "../../../Frontend/src/api/eventTypes.ts";
-import { useConfigMutationController } from "../../../Frontend/src/app/useConfigMutationController.ts";
 import { resolvePluginSettingsEvent } from "../../../Frontend/src/app/usePluginSettingsCommands.ts";
 import { resolvePresetEvent } from "../../../Frontend/src/app/usePresetCommands.ts";
 import { frontendMessage } from "../../../Frontend/src/i18n/frontendMessageCatalog.ts";
+import { installMemoryLocalStorage, resetFrontendStore } from "../frontendStoreTestHarness.mjs";
 import { clearTestToastCalls, readTestToastCalls } from "../mocks/sonner.mjs";
-import { clearPersistedStore, DEFAULT_USER_PROFILE, useStore } from "../../../Frontend/src/store/sessionStore.ts";
+import {
+  ConfigMutationHarness,
+  configMutationEvent as event,
+  createConfigSnapshot,
+} from "./configMutationTestHarness.mjs";
 
 beforeEach(() => {
-  installLocalStorage();
+  installMemoryLocalStorage();
   clearTestToastCalls();
-  resetStore();
+  resetFrontendStore();
 });
 afterEach(() => {
   cleanup();
@@ -89,7 +93,12 @@ test("useConfigMutationController handles offline commands and unmatched events 
 
   await act(async () => {
     expect(handleRef.current.saveConfig({ AgentLoop: {} })).toBe(null);
-    expect(handleRef.current.fetchProviderModels("openai")).toBeUndefined();
+    expect(
+      handleRef.current.fetchProviderModels("openai", false, {
+        Id: "openai",
+        ApiKey: "secret",
+      }),
+    ).toBeUndefined();
     expect(handleRef.current.savePluginConfig("demo", "enabled = true")).toBe(null);
     expect(handleRef.current.savePreset({ name: "default", format: "toml", content: "x = 1" })).toBe(null);
     expect(
@@ -108,6 +117,33 @@ test("useConfigMutationController handles offline commands and unmatched events 
       expect.objectContaining({ title: frontendMessage("preset.updateOffline") }),
     ]),
   );
+});
+
+test("useConfigMutationController starts header-only model discovery without an API key", async () => {
+  const send = vi.fn(() => true);
+  const handleRef = { current: null };
+
+  render(React.createElement(ConfigMutationHarness, { send, status: "open", handleRef }));
+
+  await act(async () => {
+    handleRef.current.fetchProviderModels("openai", true, {
+      Id: "openai",
+      BaseUrl: "https://api.openai.com/v1",
+      Headers: { "x-api-key": "header-secret" },
+    });
+  });
+
+  expect(send).toHaveBeenCalledWith({
+    type: "provider.models.fetch",
+    providerId: "openai",
+    force: true,
+    endpoint: {
+      Id: "openai",
+      BaseUrl: "https://api.openai.com/v1",
+      Headers: { "x-api-key": "header-secret" },
+    },
+  });
+  expect(handleRef.current.providerModelLoadingIds.openai).toBe(true);
 });
 
 test("useConfigMutationController ignores execution resource list snapshots without treating them as config commands", async () => {
@@ -217,7 +253,7 @@ test("useConfigMutationController covers enabled plugins, preset mutations, and 
 
   send.mockReturnValue(false);
   await act(async () => {
-    handleRef.current.fetchProviderModels("openai", true);
+    handleRef.current.fetchProviderModels("openai", true, { Id: "openai", ApiKey: "secret" });
   });
   expect(handleRef.current.providerModelLoadingIds).toEqual({});
 });
@@ -456,7 +492,7 @@ test("useConfigMutationController rolls back disconnected sends and records prov
 
   send.mockReturnValue(true);
   await act(async () => {
-    handleRef.current.fetchProviderModels("openai", true);
+    handleRef.current.fetchProviderModels("openai", true, { Id: "openai", ApiKey: "secret" });
   });
   expect(handleRef.current.providerModelLoadingIds.openai).toBe(true);
 
@@ -590,182 +626,3 @@ test("useConfigMutationController sends guarded provider endpoint commands and t
     }),
   );
 });
-
-test("system config queue coalesces unsent provider patches by provider id", async () => {
-  const send = vi.fn(() => true);
-  const handleRef = { current: null };
-  render(
-    React.createElement(ConfigMutationHarness, {
-      configSnapshot: createConfigSnapshot(),
-      send,
-      status: "open",
-      handleRef,
-    }),
-  );
-
-  let activeCommandId;
-  let firstPatchCommandId;
-  let latestPatchCommandId;
-  await act(async () => {
-    activeCommandId = handleRef.current.setDefaultProviderModel("gpt");
-    firstPatchCommandId = handleRef.current.upsertProviderEndpoint({
-      Id: "custom",
-      BaseUrl: "https://first.example.test/v1",
-    });
-    latestPatchCommandId = handleRef.current.upsertProviderEndpoint({
-      Id: "custom",
-      BaseUrl: "https://latest.example.test/v1",
-    });
-  });
-
-  expect(firstPatchCommandId).toBe(latestPatchCommandId);
-  expect(send).toHaveBeenCalledTimes(1);
-
-  await act(async () => {
-    handleRef.current.ingestConfigMutationEvent(
-      event(EventKinds.ConfigSnapshot, "config", {
-        ...createConfigSnapshot({ revision: 5 }),
-        operation: { commandId: activeCommandId, kind: "provider.defaultModel.set" },
-      }),
-    );
-  });
-
-  expect(send).toHaveBeenCalledTimes(2);
-  expect(send.mock.calls[1][0]).toEqual({
-    type: "provider.endpoint.upsert",
-    commandId: latestPatchCommandId,
-    endpoint: {
-      Id: "custom",
-      BaseUrl: "https://latest.example.test/v1",
-    },
-  });
-});
-
-test("system config queue resolves active and queued operations when the socket closes", async () => {
-  const send = vi.fn(() => true);
-  const handleRef = { current: null };
-  const view = render(
-    React.createElement(ConfigMutationHarness, {
-      configSnapshot: createConfigSnapshot(),
-      send,
-      status: "open",
-      handleRef,
-    }),
-  );
-
-  await act(async () => {
-    handleRef.current.upsertProviderModel({
-      model: { Id: "active", ProviderId: "openai", Endpoint: "Responses", Model: "active" },
-    });
-    handleRef.current.deleteProviderModel({ modelId: "queued" });
-  });
-  expect(send).toHaveBeenCalledTimes(1);
-
-  await act(async () => {
-    view.rerender(
-      React.createElement(ConfigMutationHarness, {
-        configSnapshot: createConfigSnapshot(),
-        send,
-        status: "idle",
-        handleRef,
-      }),
-    );
-  });
-
-  expect(handleRef.current.providerModelOperations.active).toMatchObject({ status: "error" });
-  expect(handleRef.current.providerModelOperations.queued).toMatchObject({ status: "error" });
-});
-function ConfigMutationHarness({ configSnapshot = null, send, status, handleRef }) {
-  const sendRef = useRef(send);
-  const statusRef = useRef(status);
-  sendRef.current = send;
-  statusRef.current = status;
-  const handle = useConfigMutationController({
-    configSnapshot,
-    sendRef,
-    statusRef,
-  });
-  useEffect(() => {
-    handleRef.current = handle;
-  });
-  return null;
-}
-
-function createConfigSnapshot(overrides = {}) {
-  return {
-    path: "Config.toml",
-    version: 1,
-    revision: 4,
-    value: {},
-    source: "sqlite",
-    diagnostics: [],
-    form: { version: 1, sections: [] },
-    ...overrides,
-  };
-}
-
-function event(kind, phase, data, overrides = {}) {
-  return {
-    channel: "agent.event",
-    kind,
-    layer: phase === "session" || phase === "config" || phase === "sandbox" ? "snapshot" : "progress",
-    phase,
-    sequence: 1,
-    timestamp: "2026-07-09T00:00:00.000Z",
-    data,
-    ...overrides,
-  };
-}
-
-function resetStore() {
-  clearPersistedStore();
-  useStore.setState({
-    sessions: {},
-    sessionOrder: [],
-    activeSessionId: null,
-    sidebarCollapsed: false,
-    rightPanelCollapsed: false,
-    viewedRunIdBySession: {},
-    historyLoadedIds: {},
-    historyLoadingIds: {},
-    historyFailedIds: {},
-    historyReplayBuffers: {},
-    historyStepBuffers: {},
-    historyEventRunIds: {},
-    historyActiveRequestIds: {},
-    missingOnServerIds: {},
-    pendingCreatedSessionIds: {},
-    pendingDeletedSessionIds: {},
-    modelProviders: [],
-    providerModelCatalogs: {},
-    providerModelErrors: {},
-    selectedModelProviderId: null,
-    pluginConfigs: [],
-    presets: [],
-    activePresetName: null,
-    presetsEnabled: true,
-    presetRootDir: "",
-    configSnapshot: null,
-    userProfile: DEFAULT_USER_PROFILE,
-  });
-}
-
-function installLocalStorage() {
-  const storage = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key) ?? null,
-    setItem: (key, value) => {
-      storage.set(key, String(value));
-    },
-    removeItem: (key) => {
-      storage.delete(key);
-    },
-    clear: () => {
-      storage.clear();
-    },
-    key: (index) => [...storage.keys()][index] ?? null,
-    get length() {
-      return storage.size;
-    },
-  };
-}

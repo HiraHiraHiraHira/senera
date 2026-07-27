@@ -2,7 +2,10 @@ import { type WebSocket, type RawData } from "ws";
 import { AgentEventKinds, type AgentDomainEvent } from "../Events/AgentEvent.js";
 import { matchByType } from "../Core/AgentMatch.js";
 import { AgentWebSocketRequestSchema, type AgentWebSocketRequest } from "./AgentWebSocketProtocol.js";
-import { projectAgentWebSocketRequestFailure } from "./AgentWebSocketRequestFailures.js";
+import {
+  projectAgentWebSocketParseFailure,
+  projectAgentWebSocketRequestFailure,
+} from "./AgentWebSocketRequestFailures.js";
 import {
   AgentWebSocketApprovalRequestHandlers,
   AgentWebSocketConfigRequestHandlers,
@@ -16,6 +19,7 @@ import {
 import type { AgentWebSocketEventSender, AgentWebSocketRequestContext } from "./AgentWebSocketTypes.js";
 import { agentErrorMessage } from "../I18n/AgentMessageCatalog.js";
 import { AgentWebSocketRequestScheduler } from "./AgentWebSocketRequestScheduler.js";
+import { errorMessage } from "../Core/AgentErrors.js";
 
 export class AgentWebSocketMessageRouter {
   private readonly session: AgentWebSocketSessionRequestHandlers;
@@ -138,24 +142,28 @@ export class AgentWebSocketMessageRouter {
       return {
         ok: false,
         event: requestInvalidEvent({
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         }),
       };
     }
 
     const parsed = AgentWebSocketRequestSchema.safeParse(rawRequest);
-    return parsed.success
-      ? {
-          ok: true,
-          request: parsed.data,
-        }
-      : {
-          ok: false,
-          event: requestInvalidEvent({
-            message: agentErrorMessage("websocket.requestInvalid"),
-            details: parsed.error.issues,
-          }),
-        };
+    if (parsed.success) {
+      return {
+        ok: true,
+        request: parsed.data,
+      };
+    }
+    const configFailure = projectAgentWebSocketParseFailure(rawRequest, parsed.error.issues, this.options.context);
+    return {
+      ok: false,
+      event:
+        configFailure ??
+        requestInvalidEvent({
+          message: agentErrorMessage("websocket.requestInvalid"),
+          details: parsed.error.issues,
+        }),
+    };
   }
 }
 
@@ -163,6 +171,6 @@ function requestInvalidEvent(data: { message: string; details?: unknown }): Agen
   return {
     kind: AgentEventKinds.RequestInvalid,
     context: {},
-    data,
+    data: { code: "request_parse_failed", ...data },
   };
 }

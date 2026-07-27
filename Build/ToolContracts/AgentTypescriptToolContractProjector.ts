@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import ts from "typescript";
 import { AgentPromptContractRenderer } from "../../Source/AgentSystem/Prompt/AgentPromptContractRenderer.js";
@@ -7,6 +6,7 @@ import { AgentXmlCodec } from "../../Source/AgentSystem/Xml/AgentXmlCodec.js";
 import { createXmlProtocolSpec } from "../../Source/AgentSystem/Xml/AgentXmlPolicy.js";
 import { AgentTypescriptToolContractAstReader } from "./AgentTypescriptToolContractAstReader.js";
 import { AgentTypescriptToolContractJsonSchemaCatalog } from "./AgentTypescriptToolContractJsonSchema.js";
+import { sha256Hex } from "../../Source/AgentSystem/Core/AgentHash.js";
 
 export class AgentTypescriptToolContractProjector {
   private readonly protocol = createXmlProtocolSpec();
@@ -45,7 +45,7 @@ export class AgentTypescriptToolContractProjector {
     sourceFilePath: string,
     rootName: string,
     typeName?: string,
-    sourceDigest = digestSource(sourceText),
+    sourceDigest = digestToolContractSource(sourceText),
   ): AgentPromptContractView {
     const sourceFile = ts.createSourceFile(sourceFilePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const rootDeclaration = this.reader.readRootTypeDeclaration(sourceFile, typeName);
@@ -61,7 +61,7 @@ export class AgentTypescriptToolContractProjector {
 
   private readSource(sourceFilePath: string): { sourceText: string; sourceDigest: string } {
     const sourceText = fs.readFileSync(sourceFilePath, "utf8");
-    const sourceDigest = digestSource(sourceText);
+    const sourceDigest = digestToolContractSource(sourceText);
     const cached = this.fileCache.get(sourceFilePath);
     if (cached?.sourceDigest === sourceDigest) return cached;
 
@@ -71,6 +71,6 @@ export class AgentTypescriptToolContractProjector {
   }
 }
 
-function digestSource(sourceText: string): string {
-  return crypto.createHash("sha256").update(sourceText).digest("hex");
+export function digestToolContractSource(sourceText: string): string {
+  return sha256Hex(sourceText.replace(/\r\n?/gu, "\n"));
 }

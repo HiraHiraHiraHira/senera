@@ -1,7 +1,7 @@
 import { frontendMessage } from "../../i18n/frontendMessageCatalog";
 import { BrainCircuit, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { cn } from "../../lib/util";
-import { Button, Dialog, DialogContent, MenuSelect, ScrollArea } from "../../shared/ui";
+import { Button, Dialog, DialogContent, InlineError, MenuSelect, ScrollArea } from "../../shared/ui";
 import { ModelProviderIcon, ModelProviderIconNames } from "./ModelProviderIcon";
 import { readBooleanWithTemplate, readModelCapabilities, readNumberWithTemplate } from "./modelConfigData";
 import type { ModelCapabilitiesDraft, ModelProviderDraft } from "./modelConfigTypes";
@@ -22,6 +22,8 @@ export function ModelOptionsDialog({
   onSetDefault,
   onRemove,
   removeDisabledReason,
+  errorMessage,
+  discardAction,
   commitLabels = {
     existing: frontendMessage("config.model.applyToDraft"),
     new: frontendMessage("config.model.addToDraft"),
@@ -40,6 +42,10 @@ export function ModelOptionsDialog({
   onSetDefault?: (modelId: string) => void;
   onRemove: (index: number) => void;
   removeDisabledReason?: string;
+  /** Last save failure for this model, shown above the footer actions. */
+  errorMessage?: string | null;
+  /** Escape hatch when the save-on-close cycle cannot complete. */
+  discardAction?: { label: string; onDiscard: () => void };
   commitLabels?: { existing: string; new: string };
 }): JSX.Element {
   const open = model !== null;
@@ -97,7 +103,7 @@ export function ModelOptionsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.121.15")}
+        title={frontendMessage("config.model.optionsTitle")}
         description={model.Model}
         motionPreset="focus"
         className="h-[min(720px,calc(100dvh_-_48px))] w-[min(760px,calc(100vw_-_32px))] max-w-none rounded-lg bg-paper-50"
@@ -108,7 +114,7 @@ export function ModelOptionsDialog({
             <section>
               <SectionLabel
                 icon={<SlidersHorizontal className="h-4 w-4" />}
-                title={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.130.84")}
+                title={frontendMessage("config.model.capabilitiesTitle")}
               />
               <div className="grid gap-2 sm:grid-cols-2">
                 {ModelCapabilityIconItems.map((item) => (
@@ -128,11 +134,11 @@ export function ModelOptionsDialog({
             <section>
               <SectionLabel
                 icon={<Settings2 className="h-4 w-4" />}
-                title={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.147.76")}
+                title={frontendMessage("config.model.identityTitle")}
               />
               <SettingsTable>
                 <TextRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.149.32")}
+                  label={frontendMessage("config.model.modelId")}
                   value={model.Model}
                   disabled
                   icon={<Settings2 className="h-3.5 w-3.5" />}
@@ -143,11 +149,11 @@ export function ModelOptionsDialog({
             <section>
               <SectionLabel
                 icon={<BrainCircuit className="h-4 w-4" />}
-                title={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.165.79")}
+                title={frontendMessage("config.model.parametersTitle")}
               />
               <SettingsTable>
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.168.25")}
+                  label={frontendMessage("config.model.contextWindow")}
                   value={contextWindowTokens}
                   min={-1}
                   step={1}
@@ -156,7 +162,7 @@ export function ModelOptionsDialog({
                   onChange={(ContextWindowTokens) => onChange({ ContextWindowTokens })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.177.25")}
+                  label={frontendMessage("config.model.maxModelOutput")}
                   value={maxModelOutputTokens}
                   min={-1}
                   step={1}
@@ -166,25 +172,22 @@ export function ModelOptionsDialog({
                 />
                 <MenuRow
                   icon={<Settings2 className="h-3.5 w-3.5" />}
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.185.77")}
+                  label={frontendMessage("config.model.endpointProtocol")}
                 >
                   <MenuSelect
                     value={model.Endpoint}
-                    placeholder={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.188.33")}
-                    ariaLabel={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.185.77")}
+                    placeholder={frontendMessage("config.model.selectProtocol")}
+                    ariaLabel={frontendMessage("config.model.endpointProtocol")}
                     options={endpointOptions}
                     disabled={disabled || endpointOptions.length === 0}
                     onChange={(Endpoint) => onChange({ Endpoint })}
                   />
                 </MenuRow>
-                <MenuRow
-                  icon={<BrainCircuit className="h-3.5 w-3.5" />}
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.194.80")}
-                >
+                <MenuRow icon={<BrainCircuit className="h-3.5 w-3.5" />} label={frontendMessage("config.model.icon")}>
                   <MenuSelect
                     value={model.Icon ?? ""}
-                    placeholder={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.197.33")}
-                    ariaLabel={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.194.80")}
+                    placeholder={frontendMessage("config.model.selectIcon")}
+                    ariaLabel={frontendMessage("config.model.icon")}
                     options={iconOptions}
                     disabled={disabled}
                     renderValue={(value) =>
@@ -210,11 +213,11 @@ export function ModelOptionsDialog({
             <section>
               <SectionLabel
                 icon={<SlidersHorizontal className="h-4 w-4" />}
-                title={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.219.84")}
+                title={frontendMessage("config.model.runtimeParameters")}
               />
               <SettingsTable>
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.222.25")}
+                  label={frontendMessage("config.model.temperature")}
                   value={temperature}
                   min={0}
                   max={2}
@@ -224,7 +227,7 @@ export function ModelOptionsDialog({
                   onChange={(Temperature) => onChange({ Temperature })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.232.25")}
+                  label={frontendMessage("config.model.maxOutput")}
                   value={maxOutputTokens}
                   min={-1}
                   step={1}
@@ -233,13 +236,13 @@ export function ModelOptionsDialog({
                   onChange={(MaxOutputTokens) => onChange({ MaxOutputTokens })}
                 />
                 <ToggleRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.241.25")}
+                  label={frontendMessage("config.model.streaming")}
                   enabled={streamEnabled}
                   disabled={disabled}
                   onChange={(Stream) => onChange({ Stream })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.247.25")}
+                  label={frontendMessage("config.model.requestTimeout")}
                   value={timeoutSeconds}
                   min={1}
                   step={1}
@@ -248,7 +251,7 @@ export function ModelOptionsDialog({
                   onChange={(TimeoutSeconds) => onChange({ TimeoutSeconds })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.256.25")}
+                  label={frontendMessage("config.model.firstTokenTimeout")}
                   value={firstTokenTimeoutSeconds}
                   min={-1}
                   step={1}
@@ -257,7 +260,7 @@ export function ModelOptionsDialog({
                   onChange={(FirstTokenTimeoutSeconds) => onChange({ FirstTokenTimeoutSeconds })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.265.25")}
+                  label={frontendMessage("config.model.maxRequestTime")}
                   value={maxRequestSeconds}
                   min={-1}
                   step={1}
@@ -266,7 +269,7 @@ export function ModelOptionsDialog({
                   onChange={(MaxRequestSeconds) => onChange({ MaxRequestSeconds })}
                 />
                 <NumberRow
-                  label={frontendMessage("runtime.migrated.features.chat.ModelOptionsDialog.274.25")}
+                  label={frontendMessage("config.model.networkRetries")}
                   value={maxNetworkRetries}
                   min={0}
                   step={1}
@@ -306,48 +309,56 @@ export function ModelOptionsDialog({
           </div>
         </ScrollArea>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-ink-200/70 bg-paper-100 px-5 py-3">
-          <button
-            type="button"
-            disabled={disabled || !isSaved || Boolean(removeDisabledReason)}
-            title={removeDisabledReason}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition disabled:pointer-events-none disabled:opacity-50",
-              isSaved
-                ? "border-brick-200 bg-brick-50 text-brick-700 hover:bg-brick-100"
-                : "border-ink-200 bg-paper-50 text-ink-450",
-            )}
-            onClick={() => {
-              if (modelIndex !== null) onRemove(modelIndex);
-            }}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {removeDisabledReason
-              ? frontendMessage("config.model.changeDefaultFirst")
-              : isSaved
-                ? frontendMessage("config.model.remove")
-                : frontendMessage("config.model.unsaved")}
-          </button>
-          <div className="flex items-center gap-2">
-            {onSetDefault ? (
-              <button
-                type="button"
-                disabled={disabled || !isSaved || !model.Id || isDefault}
-                className={cn(
-                  "inline-flex h-8 items-center rounded-md border px-3 text-[12px] transition",
-                  isDefault
-                    ? "border-accent-border bg-accent-surface text-accent-content"
-                    : "border-ink-200 bg-paper-50 text-ink-650 hover:border-accent-border-strong hover:text-accent-content-hover",
-                  "disabled:pointer-events-none disabled:opacity-50",
-                )}
-                onClick={() => onSetDefault(model.Id)}
-              >
-                {isDefault ? frontendMessage("config.model.default") : frontendMessage("config.model.setDefault")}
-              </button>
-            ) : null}
-            <Button size="sm" disabled={disabled} onClick={onCommit}>
-              {isSaved ? commitLabels.existing : commitLabels.new}
-            </Button>
+        <div className="shrink-0 border-t border-ink-200/70 bg-paper-100 px-5 py-3">
+          {errorMessage ? <InlineError className="mb-2">{errorMessage}</InlineError> : null}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              disabled={disabled || !isSaved || Boolean(removeDisabledReason)}
+              title={removeDisabledReason}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition disabled:pointer-events-none disabled:opacity-50",
+                isSaved
+                  ? "border-ink-200 bg-paper-50 text-brick-600 hover:border-brick-200 hover:bg-brick-50 hover:text-brick-700"
+                  : "border-ink-200 bg-paper-50 text-ink-500",
+              )}
+              onClick={() => {
+                if (modelIndex !== null) onRemove(modelIndex);
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {removeDisabledReason
+                ? frontendMessage("config.model.changeDefaultFirst")
+                : isSaved
+                  ? frontendMessage("config.model.remove")
+                  : frontendMessage("config.model.unsaved")}
+            </button>
+            <div className="flex items-center gap-2">
+              {discardAction ? (
+                <Button size="sm" variant="outline" onClick={discardAction.onDiscard}>
+                  {discardAction.label}
+                </Button>
+              ) : null}
+              {onSetDefault ? (
+                <button
+                  type="button"
+                  disabled={disabled || !isSaved || !model.Id || isDefault}
+                  className={cn(
+                    "inline-flex h-8 items-center rounded-md border px-3 text-[12px] transition",
+                    isDefault
+                      ? "border-accent-border bg-accent-surface text-accent-content"
+                      : "border-ink-200 bg-paper-50 text-ink-650 hover:border-accent-border-strong hover:text-accent-content-hover",
+                    "disabled:pointer-events-none disabled:opacity-50",
+                  )}
+                  onClick={() => onSetDefault(model.Id)}
+                >
+                  {isDefault ? frontendMessage("config.model.default") : frontendMessage("config.model.setDefault")}
+                </button>
+              ) : null}
+              <Button size="sm" disabled={disabled} onClick={onCommit}>
+                {isSaved ? commitLabels.existing : commitLabels.new}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

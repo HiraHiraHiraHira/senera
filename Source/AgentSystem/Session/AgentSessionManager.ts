@@ -39,6 +39,7 @@ import {
 } from "./AgentSessionHistoryMutationCoordinator.js";
 import { AgentKeyedLeaseQueue } from "../Core/AgentKeyedLeaseQueue.js";
 import { createOpaqueId } from "../Core/AgentIds.js";
+import { errorMessage } from "../Core/AgentErrors.js";
 
 export interface AgentSessionManagerOptions {
   loopFactory: (modelProviderId?: string) => AgentLoopRunner;
@@ -529,14 +530,20 @@ export class AgentSessionManager {
         await emitAgentEvent(request.onEvent, {
           kind: AgentEventKinds.RequestInvalid,
           context: { sessionId: result.sessionId },
-          data: { message: agentErrorMessage("session.forkTargetExists", { sessionId: result.sessionId }) },
+          data: {
+            code: "session_fork_target_exists",
+            message: agentErrorMessage("session.forkTargetExists", { sessionId: result.sessionId }),
+          },
         });
         return;
       case "request_missing":
         await emitAgentEvent(request.onEvent, {
           kind: AgentEventKinds.RequestInvalid,
           context: { sessionId: result.sourceSessionId },
-          data: { message: agentErrorMessage("session.forkBoundaryMissing", { requestId: result.requestId }) },
+          data: {
+            code: "session_fork_boundary_missing",
+            message: agentErrorMessage("session.forkBoundaryMissing", { requestId: result.requestId }),
+          },
         });
         return;
       case "forked":
@@ -599,7 +606,7 @@ export class AgentSessionManager {
       await this.emitRegenerationCancellationProgress(session.id, progress, {
         stage: "failed",
         durationMs: elapsedMilliseconds(startedAt),
-        message: readErrorMessage(error),
+        message: errorMessage(error),
       });
       throw error;
     }
@@ -713,11 +720,7 @@ function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
 }
 
-function readErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function cleanupFailureMessages(error: unknown): string[] {
   if (error instanceof AggregateError) return error.errors.flatMap(cleanupFailureMessages);
-  return [readErrorMessage(error)];
+  return [errorMessage(error)];
 }
