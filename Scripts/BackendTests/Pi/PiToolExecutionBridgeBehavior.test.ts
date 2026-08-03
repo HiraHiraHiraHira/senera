@@ -1,16 +1,31 @@
 import { describe, expect, test, vi } from "vitest";
 import {
-  AgentPiToolExecutionBridge,
-  type AgentPiToolExecutionError,
+  AgentPiToolExecutionBridge as AgentPiToolExecutionBridgeBase,
+  type AgentPiToolExecutionBridgeOptions,
 } from "../../../Source/AgentSystem/Pi/AgentPiToolExecutionBridge.js";
+import { AgentPiToolResultStatuses } from "../../../Source/AgentSystem/Pi/AgentPiTypes.js";
 import type { ExecutedToolCallResult } from "../../../Source/AgentSystem/Types/ToolRuntimeTypes.js";
-import type { RegisteredTool } from "../../../Source/AgentSystem/Types/PluginRuntimeTypes.js";
-import type { ToolObservationManifest } from "../../../Source/AgentSystem/Types/PluginManifestTypes.js";
+import type { RegisteredTool } from "../../../Source/AgentSystem/Types/AgentToolRuntimeTypes.js";
+import type { AgentToolObservationProjectionManifest } from "../../../Source/AgentSystem/Types/AgentToolObservationProjectionTypes.js";
+import { AgentPiTurnContextRegistry } from "../../../Source/AgentSystem/PiShared/AgentPiTurnContext.js";
+import { AgentExecutionErrorCodes } from "../../../Source/AgentSystem/Xml/AgentXmlStatus.js";
+import { AgentTurnTokenBudget } from "../../../Source/AgentSystem/Text/AgentTurnTokenBudget.js";
+import { toolAccessGrant } from "../Support/AgentTestFixtures.js";
+import { AgentToolExposureState } from "../../../Source/AgentSystem/ToolRuntime/AgentToolExposureState.js";
 import {
-  registerPiProxyRuntimeContext,
-  releasePiProxyRuntimeContext,
-  takePiProxyExecutedToolResult,
-} from "../../../Source/AgentSystem/PiProxy/AgentPiProxyRuntimeContext.js";
+  AgentToolFailureSources,
+  AgentToolSuccessOutcome,
+  createAgentToolFailureOutcome,
+} from "../../../Source/AgentSystem/ToolRuntime/AgentToolResultOutcome.js";
+import { StandardAgentToolObservationProjection } from "../../../Source/AgentSystem/ToolRuntime/AgentToolObservationProjectionPlan.js";
+
+const turnContexts = new AgentPiTurnContextRegistry();
+
+class AgentPiToolExecutionBridge extends AgentPiToolExecutionBridgeBase {
+  constructor(options: Omit<AgentPiToolExecutionBridgeOptions, "model" | "turnContexts">) {
+    super({ ...options, model: "test-model", turnContexts });
+  }
+}
 
 describe("Pi tool execution bridge behavior", () => {
   test("executes visible tool calls with Pi context and records artifacts before projection", async () => {
@@ -36,7 +51,6 @@ describe("Pi tool execution bridge behavior", () => {
     const bridge = new AgentPiToolExecutionBridge({
       executeToolCall,
       recordToolArtifacts,
-      model: "test-model",
     });
 
     const result = await bridge.execute({
@@ -44,9 +58,9 @@ describe("Pi tool execution bridge behavior", () => {
       params: { query: "answer" },
       toolCallId: "call-1",
       context: {
+        toolAccessGrant: toolAccessGrant(["SearchTool"], ["SearchTool"]),
         requestId: "request-1",
         step: 3,
-        visibleToolNames: ["SearchTool"],
       },
     });
 
@@ -54,12 +68,13 @@ describe("Pi tool execution bridge behavior", () => {
       {
         name: "SearchTool",
         arguments: { query: "answer" },
+        expectedContractDigest: null,
         callId: "call-1",
       },
       expect.objectContaining({
         requestId: "request-1",
         step: 3,
-        loadedToolNames: ["SearchTool"],
+        toolAccessGrant: toolAccessGrant(["SearchTool"], ["SearchTool"]),
       }),
     );
     expect(recordToolArtifacts).toHaveBeenCalledWith({
@@ -69,14 +84,16 @@ describe("Pi tool execution bridge behavior", () => {
     });
     expect(textContent(result.content[0])).toContain("senera.tool_observation.v1");
     expect(parseObservation(result)).toMatchObject({
-      result: { answer: "42" },
       artifact_uri: "senera://artifact/1",
+      detail: { result: { answer: "42" } },
+      observation_view: { complete: true },
     });
     expect(result.details.senera).toEqual(
       expect.objectContaining({
         toolName: "SearchTool",
         artifactUri: "senera://artifact/1",
         callId: "call-1",
+        status: AgentPiToolResultStatuses.Success,
       }),
     );
     expect(JSON.stringify(result)).not.toContain('"executed"');
@@ -96,62 +113,87 @@ describe("Pi tool execution bridge behavior", () => {
     const bridge = new AgentPiToolExecutionBridge({
       executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
       recordToolArtifacts: async () => [executed],
-      model: "test-model",
     });
 
     const result = await bridge.execute({
       tool: registeredTool("ExecutionResourceInspect", resourceObservation()),
       params: { resourceId: "res_0123456789abcdef0123456789abcdef" },
       toolCallId: "call-resource",
-      context: {},
+      context: { toolAccessGrant: toolAccessGrant(["ExecutionResourceInspect"]) },
     });
 
     expect(parseObservation(result)).toMatchObject({
-      result: {
-        events: [{ text: "unique-resource-output" }],
-      },
-      continuation: {
-        kind: "cursor",
-        handle: "res_0123456789abcdef0123456789abcdef",
-        cursor: 7,
-        state: "running",
-        terminal: false,
+      detail: {
+        result: {
+          events: [{ text: "unique-resource-output" }],
+        },
+        continuation: {
+          kind: "cursor",
+          handle: "res_0123456789abcdef0123456789abcdef",
+          cursor: 7,
+          state: "running",
+          terminal: false,
+        },
       },
     });
     expect(parseObservation(result)).not.toHaveProperty("projection");
   });
 
-  test("keeps full execution data in the turn context instead of persisted Pi details", async () => {
+  test("stores the complete result outside Pi history and emits an artifact-backed bounded view", async () => {
     const hugeText = "large-result\n".repeat(200_000);
     const executed = toolResult({
       result: { text: hugeText },
       artifact: artifactFixture("large result"),
     });
-    const contextId = registerPiProxyRuntimeContext({ requestId: "request-large" });
+    const accessGrant = toolAccessGrant(["LargeResultTool"]);
+    const contextId = turnContexts.register({
+      requestId: "request-large",
+      toolAccessGrant: accessGrant,
+      toolExposure: new AgentToolExposureState(accessGrant),
+    });
     try {
       const bridge = new AgentPiToolExecutionBridge({
         executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
         recordToolArtifacts: async () => [executed],
-        model: "test-model",
       });
 
       const result = await bridge.execute({
         tool: registeredTool("LargeResultTool"),
         params: {},
         toolCallId: "call-large",
-        context: { piProxyRuntimeContextId: contextId },
+        context: {
+          toolAccessGrant: accessGrant,
+          piTurnContextId: contextId,
+          tokenBudget: new AgentTurnTokenBudget({
+            model: "test-model",
+            contextWindowTokens: 8_192,
+            outputReserveTokens: 2_048,
+          }),
+        },
       });
 
-      expect(JSON.stringify(result).length).toBeLessThan(32_000);
+      const observation = parseObservation(result);
+      expect(observation).toMatchObject({
+        artifact_uri: "senera://artifact/1",
+        observation_view: {
+          complete: false,
+          artifact_fallback: { strategy: "reference", available: true },
+        },
+      });
+      expect(JSON.stringify(observation)).not.toContain(hugeText);
+      expect(textContent(result.content[0]).length).toBeLessThan(20_000);
       expect(result.details.senera).toEqual({
         toolName: "LargeResultTool",
         artifactUri: executed.artifact?.artifactUri,
         callId: executed.callId,
+        status: AgentPiToolResultStatuses.Success,
+        executionStatus: "completed",
+        outputAvailability: "complete",
       });
-      expect(takePiProxyExecutedToolResult(contextId, "call-large")).toBe(executed);
-      expect(takePiProxyExecutedToolResult(contextId, "call-large")).toBeUndefined();
+      expect(turnContexts.takeExecutedToolResult(contextId, "call-large")).toBe(executed);
+      expect(turnContexts.takeExecutedToolResult(contextId, "call-large")).toBeUndefined();
     } finally {
-      releasePiProxyRuntimeContext(contextId);
+      turnContexts.release(contextId);
     }
   });
 
@@ -179,23 +221,72 @@ describe("Pi tool execution bridge behavior", () => {
     const bridge = new AgentPiToolExecutionBridge({
       executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
       recordToolArtifacts: async () => [executed],
-      model: "test-model",
     });
 
     const result = await bridge.execute({
-      tool: registeredTool("ArtifactMemoryReadTool", {
-        MaxTokens: 6_000,
-        IncludeArtifactProjection: false,
-      }),
+      tool: registeredTool("ArtifactMemoryReadTool"),
       params: {},
       toolCallId: "call-memory",
-      context: {},
+      context: { toolAccessGrant: toolAccessGrant(["ArtifactMemoryReadTool"]) },
     });
 
     const observation = parseObservation(result);
-    expect(JSON.stringify(observation.result)).toContain("unique-hydrated-content");
-    expect(observation.result).toMatchObject({ apiToken: "[REDACTED]" });
+    expect(JSON.stringify(observation.detail)).toContain("unique-hydrated-content");
+    expect(observation.detail).toMatchObject({ result: { apiToken: "[REDACTED]" } });
     expect(JSON.stringify(observation)).not.toContain("must-not-reach-model");
+  });
+
+  test("keeps JSON continuation metadata intact for final batch projection", async () => {
+    const page = {
+      type: "senera.artifact_json_view.v2",
+      source: { ref: "raw", sha256: "a".repeat(64) },
+      query: { sourcePath: ["items"], select: ["id", "value"] },
+      page: { scanned: 200, returned: 200, complete: false, nextCursor: "cursor-next-page" },
+      items: Array.from({ length: 200 }, (_, id) => ({ id, value: `value-${id}-${"x".repeat(100)}` })),
+    };
+    const executed = toolResult({
+      name: "ArtifactMemoryReadTool",
+      result: {
+        artifacts: {
+          item: [
+            {
+              artifactUri: "senera://artifact/art_0123456789abcdef01234567",
+              memories: {
+                item: [
+                  {
+                    ref: "raw",
+                    view: { kind: "json_query", complete: false, nextCursor: "cursor-next-page" },
+                    structuredContent: page,
+                    content: JSON.stringify(page),
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      artifact: artifactFixture("query page"),
+    });
+    const bridge = new AgentPiToolExecutionBridge({
+      executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
+      recordToolArtifacts: async () => [executed],
+    });
+    const tokenBudget = new AgentTurnTokenBudget({
+      model: "test-model",
+      contextWindowTokens: 4_096,
+      outputReserveTokens: 1_024,
+    });
+
+    const result = await bridge.execute({
+      tool: registeredTool("ArtifactMemoryReadTool"),
+      params: {},
+      toolCallId: "call-query-page",
+      context: { toolAccessGrant: toolAccessGrant(["ArtifactMemoryReadTool"]), tokenBudget },
+    });
+    const text = textContent(result.content[0]);
+
+    expect(() => JSON.parse(text)).not.toThrow();
+    expect(text).toContain("cursor-next-page");
   });
 
   test("terminates Pi turn when a tool asks for user input", async () => {
@@ -208,67 +299,244 @@ describe("Pi tool execution bridge behavior", () => {
         },
       }),
       recordToolArtifacts: vi.fn(),
-      model: "test-model",
     });
 
     const result = await bridge.execute({
       tool: registeredTool("ReadFile"),
       params: {},
       toolCallId: "call-ask",
-      context: {},
+      context: { toolAccessGrant: toolAccessGrant(["ReadFile"]) },
     });
 
     expect(result.terminate).toBe(true);
     expect(textContent(result.content[0])).toContain("哪个文件");
-    expect(result.details.senera).toEqual({ toolName: "ReadFile" });
+    expect(parseObservation(result)).toMatchObject({
+      call_id: "call-ask",
+      batch_id: expect.any(String),
+      status: "waiting",
+      observation_view: {
+        type: "senera.tool_observation_source_view.v1",
+        complete: true,
+      },
+      detail: {
+        summary: "哪个文件？",
+        result: {
+          question: "哪个文件？",
+          reason_code: "missing_path",
+        },
+      },
+    });
+    expect(parseObservation(result)).not.toHaveProperty("control");
+    expect(result.details.senera).toEqual({
+      toolName: "ReadFile",
+      status: AgentPiToolResultStatuses.Success,
+      executionStatus: "completed",
+      outputAvailability: "complete",
+    });
   });
 
-  test("throws structured tool errors so Pi can surface failed execution", async () => {
+  test("returns structured tool failures so Pi can preserve diagnostics and mark execution failed", async () => {
+    const error = {
+      code: AgentExecutionErrorCodes.ToolExecutionError,
+      message: "Skill validation failed.",
+      diagnostics: [
+        {
+          code: "skill.frontmatter.invalid",
+          message: "Skill name must match its directory",
+          filePath: "E:/workspace/.senera/skills/json-field-pick/SKILL.md",
+          pointer: "/name",
+          position: { line: 18, column: 15, position: 420 },
+          frame: { startLine: 17, endLine: 19, text: "18 |       Name: JsonPickTool\n   |             ^" },
+        },
+      ],
+    };
     const bridge = new AgentPiToolExecutionBridge({
       executeToolCall: async () => ({
         kind: "ToolResults",
-        value: [toolResult({ result: { error: { code: "failed", message: "boom" } } })],
+        value: [
+          toolResult({
+            result: { error },
+            outcome: createAgentToolFailureOutcome(error, AgentToolFailureSources.Host, "none"),
+          }),
+        ],
       }),
       recordToolArtifacts: async (input) => [...input.results],
-      model: "test-model",
     });
 
-    await expect(
-      bridge.execute({
-        tool: registeredTool("ShellCommandTool"),
-        params: { command: "exit 1" },
-        toolCallId: "call-error",
-        context: {},
-      }),
-    ).rejects.toMatchObject({
-      name: "AgentPiToolExecutionError",
-      message: "boom",
-    } satisfies Partial<AgentPiToolExecutionError>);
+    const result = await bridge.execute({
+      tool: registeredTool("SkillManage"),
+      params: { action: "publish", name: "json-field-pick" },
+      toolCallId: "call-error",
+      context: { toolAccessGrant: toolAccessGrant(["SkillManage"]) },
+    });
+
+    expect(parseObservation(result)).toMatchObject({
+      status: "failure",
+      error: {
+        code: AgentExecutionErrorCodes.ToolExecutionError,
+        message: "Skill validation failed.",
+      },
+      detail: {
+        result: {
+          error: {
+            diagnostics: [
+              expect.objectContaining({
+                code: "skill.frontmatter.invalid",
+                pointer: "/name",
+                position: { line: 18, column: 15, position: 420 },
+              }),
+            ],
+          },
+        },
+      },
+    });
+    expect(result.details.senera).toMatchObject({
+      toolName: "SkillManage",
+      callId: "call-1",
+      artifactUri: undefined,
+      status: AgentPiToolResultStatuses.Failure,
+      error,
+    });
   });
 
-  test("projects empty tool results without crashing", async () => {
+  test("redacts arguments, process output, and failures before projecting them to Pi", async () => {
+    const secret = "secret-value";
+    const error = {
+      code: AgentExecutionErrorCodes.ToolExecutionError,
+      message: secret,
+      details: { token: secret },
+    };
+    const executed = toolResult({
+      arguments: { token: secret },
+      process: { exitCode: 1, signal: null, stdout: "public output", stderr: secret },
+      result: { error },
+      outcome: createAgentToolFailureOutcome(error, AgentToolFailureSources.Host, "partial"),
+      artifactPolicy: {
+        Redact: {
+          Keys: ["token"],
+          Paths: ["$.error.message"],
+          Streams: ["stderr"],
+        },
+      },
+    });
+    const bridge = new AgentPiToolExecutionBridge({
+      executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
+      recordToolArtifacts: async () => [executed],
+    });
+
+    const result = await bridge.execute({
+      tool: registeredTool("FailureTool", fullObservationProjection()),
+      params: {},
+      toolCallId: "call-redacted-failure",
+      context: { toolAccessGrant: toolAccessGrant(["FailureTool"]) },
+    });
+    const observation = parseObservation(result);
+
+    expect(observation).toMatchObject({
+      status: "failure",
+      error: {
+        code: AgentExecutionErrorCodes.ToolExecutionError,
+        message: "[REDACTED]",
+      },
+      detail: {
+        arguments: { token: "[REDACTED]" },
+        outcome: {
+          assessment: {
+            status: "failure",
+            error: {
+              code: AgentExecutionErrorCodes.ToolExecutionError,
+              message: "[REDACTED]",
+              details: { token: "[REDACTED]" },
+            },
+          },
+        },
+        process: {
+          exitCode: 1,
+          stdout: "public output",
+          stderr: "[REDACTED]",
+        },
+        result: {
+          error: {
+            code: AgentExecutionErrorCodes.ToolExecutionError,
+            message: "[REDACTED]",
+            details: { token: "[REDACTED]" },
+          },
+        },
+      },
+    });
+    expect(result.details.senera).toMatchObject({
+      status: AgentPiToolResultStatuses.Failure,
+      error: {
+        message: "[REDACTED]",
+        details: { token: "[REDACTED]" },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  test("preserves a canonical process-exit failure in the Pi observation", async () => {
+    const error = {
+      code: AgentExecutionErrorCodes.ToolProcessExited,
+      message: "Tool process failed: exit code 5",
+      details: { exitCode: 5 },
+    };
+    const executed = toolResult({
+      process: { exitCode: 5, signal: null, stdout: "partial output", stderr: "command failed" },
+      result: { error },
+      outcome: createAgentToolFailureOutcome(error, AgentToolFailureSources.Process, "partial"),
+    });
+    const bridge = new AgentPiToolExecutionBridge({
+      executeToolCall: async () => ({ kind: "ToolResults", value: [executed] }),
+      recordToolArtifacts: async () => [executed],
+    });
+
+    const result = await bridge.execute({
+      tool: registeredTool("ShellCommandTool", fullObservationProjection()),
+      params: {},
+      toolCallId: "call-process-failure",
+      context: { toolAccessGrant: toolAccessGrant(["ShellCommandTool"]) },
+    });
+
+    expect(parseObservation(result)).toMatchObject({
+      status: "failure",
+      error: {
+        code: AgentExecutionErrorCodes.ToolProcessExited,
+        kind: "process_exit",
+        source: "process",
+        retryable: false,
+      },
+      detail: {
+        process: {
+          exitCode: 5,
+          stdout: "partial output",
+          stderr: "command failed",
+        },
+        result: { error },
+      },
+    });
+    expect(result.details.senera).toMatchObject({
+      status: AgentPiToolResultStatuses.Failure,
+      error: { code: AgentExecutionErrorCodes.ToolProcessExited },
+    });
+  });
+
+  test("rejects an impossible execution batch without a result", async () => {
     const bridge = new AgentPiToolExecutionBridge({
       executeToolCall: async () => ({
         kind: "ToolResults",
         value: [],
       }),
       recordToolArtifacts: async () => [],
-      model: "test-model",
     });
 
-    const result = await bridge.execute({
-      tool: registeredTool("EmptyTool"),
-      params: {},
-      toolCallId: "call-empty",
-      context: {},
-    });
-
-    expect(textContent(result.content[0])).toContain('"status":"empty"');
-    expect(result.details.senera).toEqual(
-      expect.objectContaining({
-        toolName: "EmptyTool",
+    await expect(
+      bridge.execute({
+        tool: registeredTool("EmptyTool"),
+        params: {},
+        toolCallId: "call-empty",
+        context: { toolAccessGrant: toolAccessGrant(["EmptyTool"]) },
       }),
-    );
+    ).rejects.toThrow("without a result");
   });
 });
 
@@ -280,51 +548,41 @@ function toolResult(overrides: Partial<ExecutedToolCallResult> = {}): ExecutedTo
     process: {
       exitCode: 0,
       signal: null,
+      stdout: "",
       stderr: "",
     },
     result: { ok: true },
+    outcome: AgentToolSuccessOutcome,
     ...overrides,
   };
 }
 
-function registeredTool(name: string, observation?: ToolObservationManifest): RegisteredTool {
+function registeredTool(
+  name: string,
+  observationProjection: AgentToolObservationProjectionManifest = StandardAgentToolObservationProjection,
+): RegisteredTool {
   return {
-    loading: "Dynamic",
-    plugin: {
-      rootPath: "",
-      rootKind: "System",
-      manifestPath: "",
-      config: {
-        fileName: "PluginConfig.toml",
-        path: "",
-        exists: false,
-        source: "default",
-        templateExists: false,
-        needsUserConfig: false,
-        toml: "",
-        sections: [],
-        runtime: {
-          enabled: true,
-          tools: {},
-        },
-        diagnostics: [],
-      },
-      manifest: {
-        ManifestVersion: 2,
-        Plugin: {
-          Name: `${name}Plugin`,
-          Title: name,
-          Version: "1.0.0",
-          Kind: "Tool",
-        },
-      },
+    owner: {
+      kind: "system",
+      name: `${name}-owner`,
+      title: name,
+      rootPath: process.cwd(),
+      revision: "test",
+      trusted: true,
+      requiresApproval: false,
     },
+    loading: "Dynamic",
     name,
     permissions: [],
     sources: [],
     handler: { kind: "HostCapability", capability: name },
-    runtime: { Lifecycle: "Immediate", ProtocolVersion: 2, Capabilities: { Cancellation: true } },
-    observation,
+    runtime: {
+      Lifecycle: "Immediate",
+      ProtocolVersion: 2,
+      ResultAssessment: "ProcessExit",
+      Capabilities: { Cancellation: true },
+    },
+    observationProjection,
     execution: {
       Targets: ["Local"],
       Network: "Deny",
@@ -334,16 +592,55 @@ function registeredTool(name: string, observation?: ToolObservationManifest): Re
   };
 }
 
-function resourceObservation(): ToolObservationManifest {
+function resourceObservation(): AgentToolObservationProjectionManifest {
   return {
-    MaxTokens: 6_000,
-    IncludeArtifactProjection: false,
-    Continuation: {
-      Kind: "cursor",
-      Handle: "$.resourceId",
-      Cursor: "$.cursor",
-      State: "$.state",
-      TerminalStates: ["completed", "failed", "cancelled"],
+    ...StandardAgentToolObservationProjection,
+    continuation: {
+      kind: "cursor",
+      handle: "/resourceId",
+      cursor: "/cursor",
+      state: "/state",
+      terminalStates: ["completed", "failed", "cancelled"],
+    },
+    sources: [
+      projectionSource("continuation", "json", "essential", 192),
+      ...StandardAgentToolObservationProjection.sources,
+    ],
+  };
+}
+
+function fullObservationProjection(): AgentToolObservationProjectionManifest {
+  return {
+    ...StandardAgentToolObservationProjection,
+    maxTokens: 6_000,
+    sources: [
+      projectionSource("error", "json", "essential", 1_024),
+      projectionSource("process", "json", "high", 1_024),
+      projectionSource("arguments", "json", "normal", 1_024),
+      projectionSource("outcome", "json", "normal", 1_024),
+      ...StandardAgentToolObservationProjection.sources,
+    ],
+  };
+}
+
+function projectionSource(
+  source: AgentToolObservationProjectionManifest["sources"][number]["source"],
+  mode: AgentToolObservationProjectionManifest["sources"][number]["mode"],
+  priority: AgentToolObservationProjectionManifest["sources"][number]["priority"],
+  maxTokens: number,
+): AgentToolObservationProjectionManifest["sources"][number] {
+  return {
+    source,
+    mode,
+    priority,
+    maxTokens,
+    limits: {
+      maxDepth: 8,
+      maxArrayItems: 32,
+      maxObjectProperties: 48,
+      maxStringCharacters: 2_048,
+      maxTotalCharacters: 12_288,
+      maxNodes: 384,
     },
   };
 }

@@ -114,7 +114,7 @@ describe("model provider endpoint defaults", () => {
     expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer secret");
   });
 
-  it("reuses discovery results only while sensitive endpoint credentials are unchanged", async () => {
+  it("does not cache ad hoc endpoint credentials", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockImplementation(async () => Response.json({ data: [{ id: "secured-model" }] }));
@@ -130,13 +130,70 @@ describe("model provider endpoint defaults", () => {
       source: "network",
     });
     await expect(discovery.listProviderModels({ providerId: "custom", endpoint })).resolves.toMatchObject({
-      source: "cache",
+      source: "network",
     });
-    await expect(
-      discovery.listProviderModels({ providerId: "custom", endpoint: { ...endpoint, ApiKey: "second-secret" } }),
-    ).resolves.toMatchObject({ source: "network" });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates persisted endpoint discovery when its config revision changes", async () => {
+    let revision = 1;
+    let apiKey = "first-secret";
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => Response.json({ data: [{ id: "secured-model" }] }));
+    const discovery = new AgentProviderModelDiscovery({
+      configSnapshot: () => ({
+        ModelProviderEndpoints: [
+          {
+            Id: "custom",
+            Enabled: true,
+            BaseUrl: "https://models.example.test/v1",
+            ApiKey: apiKey,
+          },
+        ],
+        ModelProviders: [],
+      }),
+      configRevision: () => revision,
+      fetchImpl,
+    });
+
+    await expect(discovery.listProviderModels({ providerId: "custom" })).resolves.toMatchObject({ source: "network" });
+    await expect(discovery.listProviderModels({ providerId: "custom" })).resolves.toMatchObject({ source: "cache" });
+    apiKey = "second-secret";
+    revision = 2;
+    await expect(discovery.listProviderModels({ providerId: "custom" })).resolves.toMatchObject({ source: "network" });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("expires and evicts provider discovery snapshots under an explicit cache policy", async () => {
+    let now = 0;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => Response.json({ data: [{ id: "model-a" }] }));
+    const discovery = new AgentProviderModelDiscovery({
+      configSnapshot: deepSeekConfig,
+      fetchImpl,
+      cache: { maxEntries: 1, ttlMs: 100 },
+      now: () => now,
+    });
+    const endpoint = (id: string) => ({
+      Id: id,
+      Enabled: true,
+      BaseUrl: `https://${id}.example.test/v1`,
+    });
+
+    await discovery.listProviderModels({ providerId: "provider-a", endpoint: endpoint("provider-a") });
+    await expect(
+      discovery.listProviderModels({ providerId: "provider-a", endpoint: endpoint("provider-a") }),
+    ).resolves.toMatchObject({ source: "cache" });
+    await discovery.listProviderModels({ providerId: "provider-b", endpoint: endpoint("provider-b") });
+    await discovery.listProviderModels({ providerId: "provider-a", endpoint: endpoint("provider-a") });
+    now = 101;
+    await discovery.listProviderModels({ providerId: "provider-a", endpoint: endpoint("provider-a") });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it("discovers models through a header-only endpoint without an API key", async () => {

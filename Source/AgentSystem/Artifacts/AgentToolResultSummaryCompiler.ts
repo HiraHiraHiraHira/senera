@@ -1,6 +1,7 @@
+import { uniqueStrings } from "../Core/AgentCollections.js";
 import { AgentTokenProjector } from "../Text/AgentTokenProjection.js";
 import {
-  AgentToolResultSummaryType,
+  AgentToolResultSummaryProtocol,
   type AgentToolResultSummary,
   type AgentToolResultSummaryChange,
   type AgentToolResultSummaryFact,
@@ -12,6 +13,7 @@ import type {
   ToolWorkspaceCaptureResult,
 } from "../Types/ToolRuntimeTypes.js";
 import { stableArtifactStringify } from "./AgentArtifactStableJson.js";
+import type { AgentToolFailure } from "../ToolRuntime/AgentToolResultOutcome.js";
 
 export interface AgentToolResultSummaryCompilerOptions {
   model: string;
@@ -22,6 +24,7 @@ export interface AgentToolResultSummaryCompilerInput {
   toolName: string;
   callId: string;
   status: AgentToolResultSummaryStatus;
+  failure?: AgentToolFailure;
   artifactUri: string;
   deterministicSummary: string;
   result: unknown;
@@ -33,9 +36,13 @@ export interface AgentToolResultSummaryCompilerInput {
 export interface AgentToolResultSummaryTokenPolicy {
   headlineTokens: number;
   summaryTokens: number;
+  summarySourceCharacters: number;
   factValueTokens: number;
+  factSourceCharacters: number;
   changeSummaryTokens: number;
+  changeSourceCharacters: number;
   limitationTokens: number;
+  limitationSourceCharacters: number;
   maxFacts: number;
   maxChanges: number;
 }
@@ -43,9 +50,13 @@ export interface AgentToolResultSummaryTokenPolicy {
 const DefaultToolResultSummaryTokenPolicy = {
   headlineTokens: 64,
   summaryTokens: 700,
+  summarySourceCharacters: 8_192,
   factValueTokens: 160,
+  factSourceCharacters: 2_048,
   changeSummaryTokens: 128,
+  changeSourceCharacters: 2_048,
   limitationTokens: 80,
+  limitationSourceCharacters: 1_024,
   maxFacts: 64,
   maxChanges: 64,
 } as const satisfies AgentToolResultSummaryTokenPolicy;
@@ -72,7 +83,8 @@ export class AgentToolResultSummaryCompiler {
       facts,
       changes,
     });
-    const summaryPreview = this.tokenProjector.previewText(sourceSummary, this.policy.summaryTokens);
+    const boundedSourceSummary = boundSourceText(sourceSummary, this.policy.summarySourceCharacters);
+    const summaryPreview = this.tokenProjector.previewText(boundedSourceSummary.text, this.policy.summaryTokens);
     const headlinePreview = this.tokenProjector.previewText(
       this.buildHeadline(input, summaryPreview.text, facts, changes),
       this.policy.headlineTokens,
@@ -80,6 +92,9 @@ export class AgentToolResultSummaryCompiler {
     const limitations = this.projectLimitations([
       ...(summaryPreview.truncated
         ? ["Summary was token-truncated; retrieve the artifact for the full projection."]
+        : []),
+      ...(boundedSourceSummary.truncated
+        ? ["Summary source exceeded its projection character limit; retrieve the artifact for the full result."]
         : []),
       ...(projectedFacts.omitted > 0
         ? [`${projectedFacts.omitted} evidence facts were omitted from the context projection.`]
@@ -89,15 +104,16 @@ export class AgentToolResultSummaryCompiler {
         : []),
       ...(input.deterministicSummary.trim()
         ? []
-        : ["No plugin summary template produced a dedicated summary for this result."]),
+        : ["No tool summary projection produced a dedicated summary for this result."]),
     ]);
 
     return {
-      type: AgentToolResultSummaryType,
-      version: 1,
+      type: AgentToolResultSummaryProtocol.type,
+      version: AgentToolResultSummaryProtocol.version,
       toolName: input.toolName,
       callId: input.callId,
       status: input.status,
+      failure: input.failure,
       artifactUri: input.artifactUri,
       headline: headlinePreview.text,
       summary: summaryPreview.text,
@@ -174,7 +190,10 @@ export class AgentToolResultSummaryCompiler {
         return [
           {
             name,
-            value: this.tokenProjector.previewText(value, this.policy.factValueTokens).text,
+            value: this.tokenProjector.previewText(
+              boundSourceText(value, this.policy.factSourceCharacters).text,
+              this.policy.factValueTokens,
+            ).text,
             evidenceUri: entry.evidenceUri,
             kind: entry.kind,
             confidence: entry.confidence,
@@ -196,7 +215,10 @@ export class AgentToolResultSummaryCompiler {
           kind: entry.kind,
           status: entry.status,
           key: entry.kind === "evidence" ? entry.summary : entry.key,
-          summary: this.tokenProjector.previewText(entry.summary, this.policy.changeSummaryTokens).text,
+          summary: this.tokenProjector.previewText(
+            boundSourceText(entry.summary, this.policy.changeSourceCharacters).text,
+            this.policy.changeSummaryTokens,
+          ).text,
         }) satisfies AgentToolResultSummaryChange,
     );
     const workspaceChanges = (workspace?.changes ?? []).map(
@@ -205,8 +227,10 @@ export class AgentToolResultSummaryCompiler {
           kind: "workspace",
           status: entry.status,
           key: entry.path,
-          summary: this.tokenProjector.previewText(`${entry.status}: ${entry.path}`, this.policy.changeSummaryTokens)
-            .text,
+          summary: this.tokenProjector.previewText(
+            boundSourceText(`${entry.status}: ${entry.path}`, this.policy.changeSourceCharacters).text,
+            this.policy.changeSummaryTokens,
+          ).text,
         }) satisfies AgentToolResultSummaryChange,
     );
     return limitItems(uniqueChanges([...deltaChanges, ...workspaceChanges]), this.policy.maxChanges);
@@ -222,6 +246,8 @@ export class AgentToolResultSummaryCompiler {
     if (deterministic) {
       return deterministic;
     }
+
+    if (input.failure) return input.failure.message;
 
     const factLines = input.facts.map((fact) => `- ${fact.name}: ${fact.value}`);
     if (factLines.length > 0) {
@@ -263,7 +289,11 @@ export class AgentToolResultSummaryCompiler {
 
   private projectLimitations(values: readonly string[]): string[] {
     return uniqueStrings(values).map(
-      (value) => this.tokenProjector.previewText(value, this.policy.limitationTokens).text,
+      (value) =>
+        this.tokenProjector.previewText(
+          boundSourceText(value, this.policy.limitationSourceCharacters).text,
+          this.policy.limitationTokens,
+        ).text,
     );
   }
 
@@ -285,6 +315,11 @@ export class AgentToolResultSummaryCompiler {
   }
 }
 
+function boundSourceText(value: string, maximumCharacters: number): { text: string; truncated: boolean } {
+  const limit = Number.isFinite(maximumCharacters) ? Math.max(0, Math.floor(maximumCharacters)) : 0;
+  return value.length <= limit ? { text: value, truncated: false } : { text: value.slice(0, limit), truncated: true };
+}
+
 function limitItems<T>(items: readonly T[], limit: number): { items: T[]; omitted: number } {
   const normalizedLimit = Math.max(0, Math.floor(limit));
   const projected = items.slice(0, normalizedLimit);
@@ -300,10 +335,6 @@ function uniqueChanges(changes: readonly AgentToolResultSummaryChange[]): AgentT
     byKey.set(`${change.kind}:${change.key}:${change.status}`, change);
   }
   return [...byKey.values()];
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function describeResultShape(value: unknown): string {
